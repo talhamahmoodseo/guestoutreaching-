@@ -45,3 +45,5 @@ body.sp { background: var(--bg); min-width: 300px; }
 .sp-src { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; }
 .sp-src span:first-child { color: var(--ink-2); }
 .sp .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+
+.sp-card{padding:18px}.sp-stats{gap:1px;background:var(--line);border:0}.sp-stats div{border:0}.sp-big{margin-top:4px}.sp-head h2{font-size:15px}

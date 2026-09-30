@@ -1,3 +1,36 @@
+# Validation: Outreach Desk 0.12.0
+
+Validated 1 October 2026 (Asia/Karachi). Source baseline: repository main at bcf23232e7e7702baedf61640d085527448d7fb8.
+
+## Automated regression suite
+
+164 Node tests pass. The original 145 tests remain, with expected behavior updated for persistent export queuing and the Retrying connection state. Nineteen additional tests cover explicit destination/history separation and legacy migration; automatic and manual export persistence; destination safeguards; transient Gmail 404 retry; permanent 403 health; removed mailbox selections; malformed history responses; cache freshness; every metric bound; partial metric merging; interrupted metric batches; progress definitions; automatic recovery; backup credential exclusion; concurrent exports and payload edits; automatic source refresh and name detection.
+
+Run: npm ci, then npm test. Production extension dependencies are already bundled.
+
+## Actual unpacked extension
+
+The extension was loaded in headless Microsoft Edge Chromium 154.0.4258.37 with its actual service worker, storage, script injection and dashboard. The browser test created a campaign through the form, researched two local fixture publishers, verified 2 discovered / 2 researched / 2 Ready / 0 pending and 100% processed, selected a result, and delivered it to a simulated Apps Script endpoint. The first export returned HTTP 404; the retry succeeded with clean output fields. Dashboard navigation separated sources, mail and output; no JavaScript page errors were observed.
+
+The optional test is tests/e2e-product.cjs. It requires Playwright in the developer environment and an extension-capable Chromium executable. Set BROWSER_EXECUTABLE if Edge is not at the default Windows path. It creates an isolated temporary profile, serves local publisher fixtures and mocks Apps Script responses; it does not use your accounts.
+
+## Visual and interaction checks
+
+The synthetic dashboard and panel previews were opened in Chrome 150.0.7871.125. All six navigation pages loaded, campaign creation opened, invalid metric ranges showed a validation message, and reset cleared filters. Checked widths: 1512, 1024, 768 and 390 pixels. No document-wide horizontal overflow or JavaScript page errors. Screenshots were inspected for dashboard, destination layout and progress hierarchy.
+
+## Remaining external verification
+
+- Your real Apps Script deployment and Gmail permissions/search results.
+- Your public Sheets and provider quotas.
+- Your SEO extension's real toolbar and Google badges. Closed extension frames/shadow roots remain unreadable; unavailable metrics are explicit.
+- Gemini with your API key.
+
+These tests establish behavior under controlled failures, not universal availability of external providers. The PR remains a draft for testing in the user's Chrome profile.
+
+---
+
+## Previous release validation (historical)
+
 # Validation: Outreach Desk 0.11.0
 
 0.11: 145 Node tests pass, including a regression test proving a hung Sheet request no longer blocks other commands. Real-Chromium run with an Apps Script that fails twice on purpose: the campaign rode through it and completed; the queue count showed 4 waiting; clicking "Research 4 waiting" drained the queue to 0 with every waiting website researched (7 ready, 3 rejected, no unchecked left); no "Not checked" tab; auto and manual Sheet export both sent clean rows.

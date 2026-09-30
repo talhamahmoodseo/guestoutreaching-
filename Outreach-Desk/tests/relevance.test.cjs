@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),{parseHTML}=require('linkedom');
 const root=path.join(__dirname,'../extension');
-function core(){const x=vm.createContext({URL,TextDecoder,TextEncoder,Uint8Array,console});for(const f of ['vendor/publisher-deps.js','publisher-core.js','publisher-rules.js','publisher-model.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),x);return x;}
+function core(){const x=vm.createContext({URL,TextDecoder,TextEncoder,Uint8Array,console});for(const f of ['vendor/publisher-deps.js','publisher-core.js','publisher-connections.js','publisher-rules.js','publisher-model.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),x);return x;}
 const R=core().PublisherRules;
 for(const title of ['Top 100 Websites That Accept Guest Posts','Best Health Guest Posting Sites List','Guest Posting Sites: The Ultimate List','How to Find Guest Post Opportunities','Buy Guest Posts — Outreach Services'])test('screen rejects non-offer title: '+title,()=>assert.equal(R.screen({url:'https://publisher.com/post',title}).decision,'reject'));
 for(const url of ['https://github.com/user/guest-post-list','https://writer.wordpress.com/write-for-us','https://wordpress.org/support/','https://x.github.io/write-for-us'])test('platform exclusion: '+url,()=>assert.equal(R.screen({url,title:'Write for Us'}).code,'platform'));

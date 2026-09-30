@@ -6,7 +6,7 @@
   'use strict';
   const C = PublisherCore;
   const CACHE_KEY = 'publisherMailCache';
-  const NEGATIVE_TTL = 14 * 86400000;
+  const NEGATIVE_TTL = 5 * 60000;
   const BATCH = 10;
 
   function endpoint(value) {
@@ -25,7 +25,7 @@
   }
 
   // POST text/plain JSON (no CORS preflight). Apps Script answers through a redirect.
-  async function call(config, action, payload = {}, timeoutMs = 30000, fetcher) {
+  async function callOnce(config, action, payload = {}, timeoutMs = 20000, fetcher) {
     const url = endpoint(config.endpoint), key = secret(config.secret);
     const request = fetcher || g.fetch;
     const controller = new AbortController();
@@ -42,7 +42,7 @@
       if (e && e.name === 'AbortError') throw new Error('Apps Script did not answer within ' + Math.round(timeoutMs / 1000) + ' seconds.');
       throw new Error('Could not reach the Apps Script web app. Check that it is deployed with access "Anyone".');
     } finally { clearTimeout(timer); }
-    if (!response.ok) throw new Error('Apps Script returned HTTP ' + response.status + '. Check the deployment URL and that access is "Anyone".');
+    if (!response.ok) throw PublisherConnections.failure('Apps Script returned HTTP ' + response.status + '. Check the deployment URL and that access is "Anyone".', response.status);
     let body;
     try { body = JSON.parse(text); } catch (_) {
       if (/<html|<!doctype/i.test(text || '')) throw new Error('Apps Script returned a Google sign-in page. Redeploy with "Who has access: Anyone".');
@@ -52,6 +52,11 @@
     return body;
   }
 
+  async function call(config,action,payload={},timeoutMs=20000,fetcher){
+    const deadline=Date.now()+Math.min(timeoutMs,45000);
+    return PublisherConnections.retry(()=>{const remaining=deadline-Date.now();if(remaining<=0)throw new Error('Email connection timed out. Your progress is saved for retry.');return callOnce(config,action,payload,Math.min(remaining,20000),fetcher);});
+  }
+  async function accountHealth(id,error){const key='publisherMailAccounts',list=(await chrome.storage.local.get(key))[key]||[],a=list.find(x=>x.id===id);if(!a)return;if(error){PublisherConnections.failed(a,error);a.status=a.health==='retrying'?'Retrying':'Needs attention';}else{PublisherConnections.healthy(a);a.status='Connected';}await chrome.storage.local.set({[key]:list});}
   async function ping(config, fetcher) {
     const body = await call(config, 'ping', {records: []}, 25000, fetcher);
     if (body.message !== 'pong') throw new Error('This URL is not the Outreach Desk script. Paste the latest Code.gs and redeploy.');
@@ -83,7 +88,7 @@
     const wantDomains = C.uniq(domains.map(C.domain)), wantEmails = C.uniq(emails.map(e => String(e || '').toLowerCase()));
     const hits = {domains: {}, emails: {}};
     if (!accounts.length || (!wantDomains.length && !wantEmails.length)) return hits;
-    const cache = await loadCache();
+    const cache = await loadCache(), deadline=Date.now()+45000;
     let changed = false;
     for (const account of accounts) {
       const needD = wantDomains.filter(d => !fresh(cache[cacheKey(account.id, 'd', d)]));
@@ -93,14 +98,20 @@
         if (!partD.length && !partE.length) continue;
         let body;
         try {
-          body = await call(account, 'sent', {domains: partD, emails: partE}, 60000, fetcher);
+          const remaining=deadline-Date.now();if(remaining<=0)throw new Error('Email history check timed out. Your progress is saved for retry.');body = await call(account, 'sent', {domains: partD, emails: partE}, remaining, fetcher);
         } catch (e) {
+          await accountHealth(account.id,e);
           if (changed) await saveCache(cache);
           const error = new Error((account.label || account.email || 'Email account') + ' could not be checked: ' + e.message);
-          error.blockedAccount = account.id;
+          error.blockedAccount = account.id; error.httpStatus=e.httpStatus;
           throw error;
         }
-        const results = body.results || {};
+        const results = body.results;
+        if(!results || partD.some(d=>typeof results.domains?.[d]?.sent!=='boolean') || partE.some(e=>typeof results.emails?.[e]?.sent!=='boolean')){
+          const error=new Error('Email history returned an unreadable or incomplete result. Update the Apps Script deployment.');
+          await accountHealth(account.id,error);throw error;
+        }
+        await accountHealth(account.id);
         for (const d of partD) { const r = results.domains?.[d] || {}; cache[cacheKey(account.id, 'd', d)] = {s: r.sent ? 1 : 0, date: C.clean(r.date).slice(0, 40), to: C.clean(r.to).slice(0, 254), at: Date.now()}; }
         for (const e of partE) { const r = results.emails?.[e] || {}; cache[cacheKey(account.id, 'e', e)] = {s: r.sent ? 1 : 0, date: C.clean(r.date).slice(0, 40), to: C.clean(r.to).slice(0, 254), at: Date.now()}; }
         changed = true;

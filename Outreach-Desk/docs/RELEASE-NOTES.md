@@ -1,3 +1,16 @@
+# 0.12 — Connected outreach workspace
+
+- Separate Research sources, Email history and Export destinations pages; sender profiles remain in Settings.
+- Public Sheets connect and detect names automatically; stale sources refresh before research and idle sources refresh hourly.
+- Shared persistent connection health, bounded transient retries, useful error reasons and scheduled recovery.
+- Independent output-history opt-in with migration for existing connections. Gmail account selections fail closed if an account disappears.
+- Durable manual and automatic export queues, destination-change safeguards, and background delivery that does not block research controls.
+- Complete minimum/maximum DA, DR, spam, age and traffic filters with range validation.
+- Partial metric merging, durable in-flight metric batches and one automatic recovery pass after campaigns.
+- Actual researched counts, discovered-site progress, outcome counts and target attainment shown separately.
+- Refined dashboard/panel hierarchy and selection-scoped Copy main email.
+- 19 additional automated regressions; existing research behavior remains covered.
+
 # Outreach Desk 0.11.0
 
 After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.

@@ -42,5 +42,10 @@ function restoreLead(raw,version,id){
  if(!r.discoveries.length)r.discoveries=[{query:r.query||'Imported backup',url:r.discoveredURL,title:r.title,at:r.createdAt}];
  r.campaignId=short(raw.campaignId,120)||'legacy';r.campaignName=short(raw.campaignName,120)||'Imported research';r.language=/^[a-z]{2}$/.test(raw.language||'')?raw.language:'unknown';r.languageConfidence=Math.max(0,Math.min(100,Number(raw.languageConfidence)||0));if(raw.hardReject?.reason)r.hardReject={code:short(raw.hardReject.code,60),reason:short(raw.hardReject.reason,500)};r.da=Number.isInteger(raw.da)&&raw.da>=0&&raw.da<=100?raw.da:null;r.pa=Number.isInteger(raw.pa)&&raw.pa>=0&&raw.pa<=100?raw.pa:null;r.daSource=short(raw.daSource,100);if(raw.bucket==='rejected'&&!r.hardReject&&!r.opportunities.length)r.hardReject={code:'restored_rejection',reason:short(raw.decisionReason||raw.screenReason)||'Excluded in original campaign'};r.screenReason=version>=2?short(raw.screenReason):'Imported from an earlier version; recheck the opportunity';return recompute(r);
 }
-g.PublisherModel={blank,recompute,mergePage,tally,migrate,stats,restoreLead};
+function progress(s,c){
+ const rows=s.leads.filter(r=>r.campaignId===c.id),active=(c.jobs||[]).length,queued=Array.isArray(c.pending)?c.pending.length:(c.queued||0);
+ const discovered=Math.max(c.stats?.unique||0,new Set([...rows.map(r=>r.domain),...(c.jobs||[]).map(j=>j.domain)]).size),pending=Math.min(discovered,active+queued),processed=Math.max(0,discovered-pending);
+ return {discovered,researched:rows.filter(r=>r.visitedURLs?.length).length,ready:rows.filter(r=>r.bucket==='ready').length,rejected:rows.filter(r=>r.bucket==='rejected').length,noEmail:rows.filter(r=>r.bucket==='no_email').length,form:rows.filter(r=>r.bucket==='form').length,pending,active,processed,percent:discovered?Math.round(processed/discovered*100):0};
+}
+g.PublisherModel={progress,blank,recompute,mergePage,tally,migrate,stats,restoreLead};
 })(globalThis);

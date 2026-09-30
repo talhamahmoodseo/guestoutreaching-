@@ -1,6 +1,6 @@
 {
   "name": "outreach-desk-standalone",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "Optional test tools. Installing the Chrome extension requires no npm packages.",
   "scripts": {

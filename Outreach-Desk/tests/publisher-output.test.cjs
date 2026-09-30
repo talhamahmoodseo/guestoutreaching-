@@ -7,7 +7,7 @@ const root = path.join(__dirname, '../extension');
 const appsScriptSource = fs.readFileSync(path.join(__dirname, '../sheets-apps-script/Code.gs'), 'utf8');
 const secret = 'fixture-secret-123';
 const config = { endpoint: 'https://script.google.com/macros/s/deployment_id-123/exec', secret };
-function loadOutput() { const ctx = vm.createContext({ URL, TextEncoder, AbortController, setTimeout, clearTimeout, console }); vm.runInContext(fs.readFileSync(path.join(root, 'publisher-output.js'), 'utf8'), ctx); return ctx.PublisherOutput; }
+function loadOutput() { const ctx = vm.createContext({ URL, TextEncoder, AbortController, setTimeout, clearTimeout, console }); vm.runInContext(fs.readFileSync(path.join(root, 'publisher-connections.js'), 'utf8'), ctx); vm.runInContext(fs.readFileSync(path.join(root, 'publisher-output.js'), 'utf8'), ctx); return ctx.PublisherOutput; }
 const lead = (extra = {}) => ({ id: 'lead-1', campaignId: 'c1', campaignName: 'Fall outreach', niche: 'Education', domain: 'example.com', website: 'https://www.example.com/', bucket: 'ready', bestEmail: 'editor@example.com', language: 'en', da: 44, dr: 51, spam: 3, age: 150, collectedAt: '2026-09-02T09:00:00Z',
   emails: [{ email: 'editor@example.com', suitability: 'recommended' }, { email: 'ads@example.com', suitability: 'fallback' }, { email: 'noreply@example.com', suitability: 'excluded' }],
   contactPages: ['https://example.com/contact'], opportunities: [{ decision: 'qualified', url: 'https://example.com/write-for-us' }], forms: [], ...extra });

@@ -1,3 +1,9 @@
+# Current product structure
+
+See [PRODUCT-STRUCTURE.md](PRODUCT-STRUCTURE.md) for the 0.12 information architecture, connection ownership, progress definitions and migration policy.
+
+---
+
 # Outreach Desk 0.6 architecture and completed workflow
 
 The Chrome extension owns local campaign state, research jobs and results. Public Sheets supply duplicate/contact-history indexes. The optional Apps Script destination receives campaign-scoped result rows. Gemini is optional and does not control navigation, send outreach, or invent contact addresses.
