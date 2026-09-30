@@ -4,7 +4,7 @@
   'use strict';
   const MAX_RECORDS = 100;
   const MAX_PAYLOAD_BYTES = 400 * 1024;
-  const REQUEST_TIMEOUT_MS = 30000;
+  const REQUEST_TIMEOUT_MS = 20000;
   const LANGUAGES = {en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ur: 'Urdu', ar: 'Arabic'};
 
   function clean(value, limit) {
@@ -100,10 +100,10 @@
       response = await request(checked.endpoint, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body, credentials: 'omit', cache: 'no-store', redirect: 'follow', signal: controller.signal});
       text = typeof response.text === 'function' ? await response.text() : JSON.stringify(await response.json());
     } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('Apps Script did not answer within 30 seconds.');
+      if (e && e.name === 'AbortError') throw new Error('Apps Script did not answer within 20 seconds.');
       throw new Error('Could not reach the Apps Script web app. Check that it is deployed with access "Anyone".');
     } finally { clearTimeout(timer); }
-    if (!response || response.ok !== true) throw new Error('Apps Script returned an HTTP error. Check the deployment URL and access setting.');
+    if (!response || response.ok !== true) throw PublisherConnections.failure('Apps Script returned HTTP ' + response?.status + '. Check the deployment URL and access setting.',response?.status);
     let ack;
     try { ack = JSON.parse(text); } catch (_) { throw new Error('Apps Script returned an unreadable answer. Paste the latest Code.gs and deploy a new version.'); }
     if (!ack || ack.ok !== true) throw new Error(clean(ack && ack.error, 300) || 'Apps Script did not accept the request.');

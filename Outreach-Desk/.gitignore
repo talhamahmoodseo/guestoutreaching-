@@ -1,0 +1,7 @@
+node_modules/
+pnpm-lock.yaml
+test-results.txt
+index.html
+tests/*-preview.html
+tests/panel-frame.html
+pnpm-workspace.yaml
