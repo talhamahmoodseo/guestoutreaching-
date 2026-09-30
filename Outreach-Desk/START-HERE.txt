@@ -1,0 +1,21 @@
+OUTREACH DESK 0.6 — CHROME EXTENSION
+
+1. Extract this ZIP to a permanent folder.
+2. Open chrome://extensions in Chrome.
+3. Enable Developer mode.
+4. Click Load unpacked.
+5. Select Outreach-Desk/extension (the folder containing manifest.json).
+6. Open the extension icon and click Open research workspace.
+
+UPGRADING? Back up your current data first in Preferences.
+For the same extension identity, replace the files in its existing extension
+folder and click Reload in Chrome. Installing from another folder can create
+separate storage. Restore your JSON backup if needed. Do not uninstall your
+old copy before backing it up.
+
+Read README.md for campaign setup, Gemini, CSV, sender profiles and limits.
+For automatic Sheet output, follow sheets-apps-script/SETUP.md.
+No npm installation or build step is needed to use the extension.
+
+This extension does not send email or submit contact forms. Sender profiles
+are draft identities, not authenticated inbox connections.

@@ -1,0 +1,47 @@
+/* Side panel: same tokens as the dashboard, laid out for ~360px. */
+body.sp { background: var(--bg); min-width: 300px; }
+.sp-top { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; background: var(--side); }
+.sp-top .brand { padding: 0; }
+.sp-top .btn { background: #243142; border-color: #33425a; color: #e6ebf2; }
+.sp-top .btn:hover { background: #2d3c51; }
+.sp-body { display: grid; gap: 12px; padding: 12px; }
+.sp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px; display: grid; gap: 12px; }
+.sp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.sp-head h2 { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-head p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sp-big { display: flex; align-items: baseline; gap: 6px; }
+.sp-big b { font-size: 28px; font-weight: 650; line-height: 1; color: var(--accent); }
+.sp-big span { color: var(--muted); }
+.sp .meter { background: var(--grey-soft); }
+.sp .meter i { background: var(--accent); }
+.sp-stats { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.sp-stats div { padding: 8px 10px; background: var(--surface-2); border-left: 1px solid var(--line); }
+.sp-stats div:first-child { border-left: 0; }
+.sp-stats b { display: block; font-size: 15px; }
+.sp-stats span { font-size: 11px; color: var(--muted); }
+.sp-label { font-size: 11.5px; font-weight: 650; color: var(--muted); }
+.sp-sites { display: grid; gap: 2px; }
+.sp-site { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 12.5px; min-width: 0; }
+.sp-site span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-site i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1.4s infinite; }
+.sp-site.parked i { background: var(--amber); animation: none; }
+.sp-site .link { padding: 0 2px; font-size: 12px; }
+.sp-msg { font-size: 12.5px; color: var(--ink-2); padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); }
+.sp-msg.warn { background: var(--amber-soft); color: #6d4105; }
+.sp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sp-actions .btn { width: 100%; }
+.sp-actions .wide { grid-column: span 2; }
+.sp-list { display: grid; }
+.sp-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); min-width: 0; }
+.sp-row:first-child { border-top: 0; padding-top: 0; }
+.sp-row div { flex: 1; min-width: 0; }
+.sp-row strong, .sp-row span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-row strong { font-size: 13px; }
+.sp-row span { font-size: 12px; color: var(--muted); }
+.sp-empty { text-align: center; padding: 22px 14px; }
+.sp-empty h2 { font-size: 15px; margin-bottom: 4px; }
+.sp-empty p { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
+.sp-sources { gap: 8px; }
+.sp-src { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; }
+.sp-src span:first-child { color: var(--ink-2); }
+.sp .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }

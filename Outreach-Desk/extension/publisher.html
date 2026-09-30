@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outreach Desk</title>
+<link rel="icon" href="icons/outreach48.png">
+<link rel="stylesheet" href="publisher.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><img src="icons/outreach48.png" alt=""><div><strong>Outreach Desk</strong><span>Guest post research</span></div></div>
+    <button class="btn primary block" id="new-search" type="button">New campaign</button>
+    <nav aria-label="Workspace">
+      <button class="nav-item active" data-view="opportunities" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14M3 10h14M3 16h9"/></svg>Results</button>
+      <button class="nav-item" data-view="searches" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg>Campaigns</button>
+      <button class="nav-item" data-view="databases" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><ellipse cx="10" cy="5" rx="6" ry="2.5"/><path d="M4 5v10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5"/></svg>Sources &amp; history</button>
+      <button class="nav-item" data-view="preferences" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg>Settings</button>
+    </nav>
+    <section id="run" class="run" aria-live="polite" hidden></section>
+    <div class="sidebar-foot"><span class="dot"></span>Saved in this Chrome profile <span id="engine-version" class="ver"></span></div>
+  </aside>
+
+  <main class="main">
+    <div id="error-banner" class="banner error" hidden></div>
+
+    <!-- Results -->
+    <section data-page="opportunities">
+      <header class="topbar">
+        <div class="campaign-pick">
+          <label for="campaign-filter">Campaign</label>
+          <select id="campaign-filter"></select>
+        </div>
+        <div class="search-box"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg><input id="search" type="search" placeholder="Search domain, email, title or keyword" aria-label="Search results"></div>
+        <div class="topbar-actions">
+          <button class="btn" id="copy-emails" type="button">Copy emails</button>
+          <button class="btn" id="export" type="button">Export CSV</button>
+        </div>
+      </header>
+      <div id="campaign-report" class="report"></div>
+      <div class="workspace">
+      <div class="tabs" id="inbox-filters" role="tablist" aria-label="Result status"></div>
+
+      <div class="filters">
+        <select id="type-filter" aria-label="Opportunity"><option value="">Any opportunity</option><option>Guest post</option><option>Contributor</option><option>Sponsored content</option><option>Advertising</option></select>
+        <select id="availability-filter" aria-label="Contact"><option value="">Any contact</option><option value="email">Has email</option><option value="form">Form only</option><option value="none">No email</option></select>
+        <select id="keyword-filter" aria-label="Keyword"><option value="">All keywords</option></select>
+        <select id="reason-filter" aria-label="Rejection reason" hidden><option value="">All reasons</option></select>
+        <details class="pop" id="metric-pop">
+          <summary class="btn subtle">Metrics <span class="count" id="metric-count" hidden></span></summary>
+          <div class="pop-body">
+            <div class="grid2">
+              <label>DA from<input id="da-min-filter" type="number" min="0" max="100" inputmode="numeric"></label>
+              <label>DA to<input id="da-max-filter" type="number" min="0" max="100" inputmode="numeric"></label>
+              <label>DR at least<input id="dr-min-filter" type="number" min="0" max="100" inputmode="numeric"></label>
+              <label>Spam at most (%)<input id="spam-max-filter" type="number" min="0" max="100" inputmode="numeric"></label>
+              <label>Age at least (years)<input id="age-min-filter" type="number" min="0" max="60" inputmode="numeric"></label>
+              <label>Traffic at least<input id="traffic-min-filter" type="number" min="0" inputmode="numeric"></label>
+            </div>
+            <label class="check"><input id="hide-missing-filter" type="checkbox"> Hide results without these metrics</label>
+            <label class="check"><input id="missing-only-filter" type="checkbox"> Only results with a missing metric</label>
+          </div>
+        </details>
+        <details class="pop" id="more-pop">
+          <summary class="btn subtle">More filters</summary>
+          <div class="pop-body">
+            <label>Email type<select id="email-filter"><option value="">Any email type</option><option>Editorial</option><option>Submissions</option><option>Advertising</option><option>Partnerships</option><option>General contact</option><option>Sales</option><option>Customer support</option></select></label>
+            <label>Niche<select id="niche-filter"><option value="">Any niche</option></select></label>
+            <label>Language<select id="language-filter"><option value="">Any language</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="pt">Portuguese</option><option value="nl">Dutch</option><option value="pl">Polish</option><option value="ur">Urdu</option><option value="ar">Arabic</option><option value="unknown">Unknown</option></select></label>
+            <label>Minimum score<input id="score-min-filter" type="number" min="0" max="100"></label>
+            <label>Domain extensions<input id="tld-filter" placeholder="com, org, co.uk"></label>
+            <label>Checked within<select id="recent-filter"><option value="">Any time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
+          </div>
+        </details>
+        <select id="sort" aria-label="Sort by"><option value="recent">Newest first</option><option value="score">Highest score</option><option value="da">Highest DA</option><option value="dr">Highest DR</option><option value="age">Oldest domain</option><option value="traffic">Most traffic</option><option value="domain">Domain A-Z</option><option value="purpose">Best contact first</option></select>
+        <button class="link" id="reset-filters" type="button">Reset</button>
+      </div>
+
+      <div id="bulk" class="bulk" hidden>
+        <strong id="selection"></strong>
+        <button class="link" id="select-all" type="button"></button>
+        <span class="sep"></span>
+        <button class="btn small accent" id="send-sheet" type="button">Send to Sheet</button>
+        <button class="btn small" id="recheck-metrics" type="button">Recheck metrics</button>
+        <select id="bulk-status" aria-label="Set status"><option value="">Set status</option><option>Contacted</option><option>Follow-up</option><option>Not a fit</option><option>New</option><option value="dnc">Do not contact</option></select>
+        <button class="btn small danger" id="delete-selected" type="button">Delete</button>
+        <button class="link" id="clear-selection" type="button">Clear</button>
+      </div>
+      <div id="results"></div>
+      <div id="pager"></div>
+      </div>
+    </section>
+
+    <!-- Campaigns -->
+    <section data-page="searches" hidden>
+      <header class="page-head"><div><h1>Campaigns</h1><p>Progress, keyword performance and why websites were skipped.</p></div></header>
+      <div id="campaign-list" class="stack"></div>
+    </section>
+
+    <!-- Sources -->
+    <section data-page="databases" hidden>
+      <header class="page-head"><div><h1>Sources &amp; history</h1><p>Everything here is checked before a website is researched. If a domain was contacted before, from any source, it is skipped.</p></div></header>
+      <div class="cols">
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head"><div><h2>Output Sheet</h2><p>Results are written here. Rows you mark Contacted, Follow-up, Declined and so on, and any extra tab you add (old lists, IMPORTRANGE copies), count as history.</p></div><span class="pill" id="output-pill">Not connected</span></div>
+            <div class="form-grid">
+              <label class="span2">Apps Script URL<input id="output-endpoint" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
+              <label class="span2">Secret <span class="opt">optional</span><input id="output-secret" type="password" placeholder="Leave empty unless you set SECRET in the script" autocomplete="off"></label>
+              <label class="check span2"><input id="output-mail" type="checkbox" checked> Also check this Google account's sent mail</label>
+              <label class="span2">Sheet export<select id="sheet-mode"><option value="manual">Manual only: select results and click Send to Sheet</option><option value="auto">Automatic: send qualifying results as they are found</option></select></label>
+            </div>
+            <p class="hint" id="output-status"></p>
+            <div class="actions"><button class="btn primary" id="output-connect" type="button">Connect and test</button><button class="btn" id="output-sync" type="button">Sync now</button><button class="link danger" id="output-disconnect" type="button">Disconnect</button></div>
+            <details class="help"><summary>How to set it up (5 minutes)</summary>
+              <ol>
+                <li>Create a new Google Sheet. Open Extensions, then Apps Script.</li>
+                <li>Paste <code>Code.gs</code> from the <code>sheets-apps-script</code> folder. In Project Settings, tick "Show appsscript.json" and paste that file too. It limits the script to this Sheet and read-only Gmail.</li>
+                <li>Deploy, New deployment, Web app. Execute as: Me. Who has access: Anyone. Approve the permissions.</li>
+                <li>Copy the URL ending in <code>/exec</code> and paste it above.</li>
+              </ol>
+            </details>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><h2>Email accounts</h2><p>Checks your Sent folder so a domain you already emailed is skipped. Only yes/no, the date and the matched address come back.</p></div>
+              <label class="switch"><input id="mail-history" type="checkbox"><span></span>Check sent mail</label></div>
+            <div id="mail-list" class="rows"></div>
+            <div class="form-grid">
+              <label>Label <span class="opt">optional</span><input id="mail-label" placeholder="Outreach Gmail"></label>
+              <label>Secret <span class="opt">optional</span><input id="mail-secret" type="password" autocomplete="off"></label>
+              <label class="span2">Apps Script URL for this account<input id="mail-endpoint" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
+            </div>
+            <div class="actions"><button class="btn primary" id="mail-add" type="button">Add account</button></div>
+            <details class="help"><summary>Add another Gmail account</summary>
+              <ol>
+                <li>Sign in to that Gmail account and open script.google.com, then New project.</li>
+                <li>Paste the same <code>Code.gs</code> and <code>appsscript.json</code>.</li>
+                <li>Deploy as a Web app (Execute as: Me, Access: Anyone) and paste the URL above.</li>
+              </ol>
+            </details>
+          </article>
+        </div>
+
+        <div class="stack">
+          <article class="panel">
+            <div class="panel-head"><div><h2>Public Google Sheets</h2><p>Read-only lists. Every tab is checked. The Sheet must be shared as "Anyone with the link, Viewer". For private lists, add them as tabs in your Output Sheet instead.</p></div></div>
+            <label>Sheet links<textarea id="sheet-links" rows="3" placeholder="One Google Sheets link per line"></textarea></label>
+            <div class="actions"><button class="btn primary" id="connect" type="button">Add Sheets</button><label class="btn file">Upload XLSX or CSV<input id="import-db" type="file" accept=".xlsx,.csv" hidden></label></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h2>Connected sources</h2><p>If an enabled source fails to load, research waits instead of treating old contacts as new.</p></div><span class="pill" id="db-count"></span></div>
+            <div id="db-list" class="rows"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section data-page="preferences" hidden>
+      <header class="page-head"><div><h1>Settings</h1><p>Research defaults, Gemini, sender details and backups.</p></div></header>
+      <form id="settings" class="cols">
+        <div class="stack">
+          <article class="panel">
+            <h2>Research</h2>
+            <label>Websites researched at the same time<select name="parallel"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option></select><span class="hint">5 is a good balance. More tabs means more memory.</span></label>
+            <label class="check"><input name="excludePlatforms" type="checkbox"> Skip GitHub, hosted WordPress.com/Blogger sites and forums</label>
+            <label class="check"><input name="researchUnclear" type="checkbox"> Open unclear search results instead of skipping them</label>
+            <label>Domain blocklist<textarea name="blocklist" rows="5" placeholder="One domain per line"></textarea></label>
+          </article>
+          <article class="panel">
+            <h2>Gemini</h2>
+            <p class="hint">Optional. Used once per promising website to confirm the niche, classify unclear emails and read the publisher's terms (free or paid, link policy, submission rules). Only kept when it can quote the page. Research works without it.</p>
+            <div class="form-grid">
+              <label>Model<input name="geminiModel" placeholder="gemini-3.1-flash-lite"></label>
+              <label>API key <span class="opt" id="key-state"></span><input name="apiKey" type="password" autocomplete="off" placeholder="Paste to replace"></label>
+            </div>
+            <label class="check"><input name="ai" type="checkbox"> Turn Gemini on for new campaigns by default</label>
+            <label class="check"><input name="clearKey" type="checkbox"> Remove the saved key</label>
+            <div class="actions"><button class="btn" id="gemini-test" type="button">Test connection</button><span class="hint" id="gemini-status"></span></div>
+          </article>
+          <div class="actions sticky-save"><button class="btn primary" type="submit">Save settings</button></div>
+        </div>
+        <div class="stack">
+          <article class="panel">
+            <h2>Default contact form details</h2>
+            <p class="hint">Used when you click "Prepare form" on a result. Nothing is submitted for you.</p>
+            <div class="form-grid">
+              <label>Name<input name="name"></label><label>Email<input name="email" type="email"></label>
+              <label>Company<input name="company"></label><label>Website<input name="website"></label>
+              <label class="span2">Subject<input name="subject"></label>
+              <label class="span2">Message<textarea name="message" rows="4"></textarea></label>
+            </div>
+          </article>
+          <article class="panel">
+            <h2>Sender profiles</h2>
+            <p class="hint">Pick one per campaign for form drafts. These do not connect a mailbox.</p>
+            <div id="sender-list" class="rows"></div>
+            <details class="help"><summary>Add a sender profile</summary>
+              <div id="sender-form" class="form-grid">
+                <label>Label<input name="senderLabel"></label><label>Name<input name="senderName"></label>
+                <label>Email<input name="senderEmail" type="email"></label><label>Company<input name="senderCompany"></label>
+                <label>Website<input name="senderWebsite"></label><label>Subject<input name="senderSubject"></label>
+                <label class="span2">Message<textarea name="senderMessage" rows="3"></textarea></label>
+                <div class="actions span2"><button class="btn" id="sender-save" type="button">Save profile</button></div>
+              </div>
+            </details>
+          </article>
+          <article class="panel">
+            <h2>Backup</h2>
+            <p class="hint">Includes results, evidence, notes and history. API keys and script URLs are not included.</p>
+            <div class="actions"><button class="btn" id="backup" type="button">Download backup</button><label class="btn file">Restore backup<input id="restore" type="file" accept=".json" hidden></label></div>
+          </article>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+
+<!-- New campaign -->
+<dialog id="search-dialog" class="sheet wide">
+  <form id="search-form" method="dialog">
+    <header class="sheet-head"><h2 id="search-title">New campaign</h2><button class="icon-btn" data-close="search-dialog" type="button" aria-label="Close">&times;</button></header>
+    <div class="sheet-body">
+      <section class="step"><h3><span>1</span>Basics</h3>
+        <div class="form-grid three">
+          <label>Niche<input name="niche" required placeholder="Fashion"></label>
+          <label>Campaign name <span class="opt">optional</span><input name="campaignName" placeholder="Fashion, October"></label>
+          <label>Research language<select name="researchLanguage"><option value="any">Any language</option><option value="en" selected>English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="pt">Portuguese</option><option value="nl">Dutch</option><option value="pl">Polish</option><option value="ur">Urdu</option><option value="ar">Arabic</option></select></label>
+          <label>Stop after<input name="target" type="number" min="1" max="5000" value="50"><span class="hint">ready websites</span></label>
+          <label>Counts as ready<select name="contactGoal"><option value="email">Useful email found</option><option value="any">Email or contact form</option><option value="form">Contact form only</option></select></label>
+          <label>Sender profile<select name="senderId"></select></label>
+        </div>
+      </section>
+      <section class="step"><h3><span>2</span>Keywords</h3>
+        <label>Related topics <span class="opt">optional</span><input name="subtopics" placeholder="Pick suggestions below or type your own"></label>
+        <div id="topic-chips" class="chips"></div>
+        <div class="row-actions">
+          <label class="check"><input name="relatedTopics" type="checkbox"> Include related topics</label>
+          <label class="check"><input name="useGemini" type="checkbox"> Use Gemini</label>
+          <button class="btn" id="generate" type="button">Generate keywords</button>
+        </div>
+        <label>Search keywords <span class="opt">one per line, editable</span><textarea name="queries" rows="6" placeholder='fashion "write for us"'></textarea></label>
+        <p class="hint" id="query-note"></p>
+        <details class="help"><summary>Research my own website list instead of Google</summary><label>Website URLs<textarea name="urls" rows="3" placeholder="One URL per line"></textarea></label></details>
+      </section>
+      <section class="step"><h3><span>3</span>Metric filters <span class="opt">read from your SEO extension on Google</span></h3>
+        <div class="form-grid six">
+          <label>DA from<input name="daMin" type="number" min="0" max="100"></label>
+          <label>DA to<input name="daMax" type="number" min="0" max="100"></label>
+          <label>DR at least<input name="drMin" type="number" min="0" max="100"></label>
+          <label>Spam at most %<input name="spamMax" type="number" min="0" max="100"></label>
+          <label>Age at least (yrs)<input name="ageMinYears" type="number" min="0" max="60" step="0.5"></label>
+          <label>Traffic at least<input name="trafficMin" type="number" min="0"></label>
+        </div>
+        <div class="row-actions">
+          
+          <label>Domain extensions <span class="opt">optional</span><input name="tlds" placeholder="com, org, co.uk"></label>
+          <button class="btn" id="test-da" type="button">Check metrics on Google</button>
+        </div>
+        <label class="inline-select">If a metric cannot be read<select name="missingMetric"><option value="keep">Keep the website, mark the metric as missing</option><option value="skip">Skip the website</option></select></label>
+        <p class="hint" id="da-status">Leave the filters empty to research without metric filters. Missing metrics can be rechecked later from the results table.</p>
+      </section>
+      <section class="step"><h3><span>4</span>History and speed</h3>
+        <div class="checks">
+          <label class="check"><input name="checkDatabase" type="checkbox" checked> Skip domains already in my sources</label>
+          <label class="check"><input name="checkContacted" type="checkbox" checked> Skip domains marked contacted</label>
+        </div>
+        <label class="inline-select">If a website shows a CAPTCHA that does not clear<select name="onVerification"><option value="skip">Skip it and continue</option><option value="pause">Pause for me to review</option></select></label>
+        <div id="mail-choice" class="mail-choice"></div>
+        <p class="hint" id="source-check"></p>
+        <details class="help"><summary>Speed and limits</summary>
+          <div class="form-grid four">
+            <label>Sites at once<select name="parallel"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+            <label>Google pages per keyword<input name="maxPages" type="number" min="1" max="20" value="5"></label>
+            <label>Seconds per website<input name="budget" type="number" min="30" max="180" value="75"></label>
+            <label>Pages per website<input name="pageLimit" type="number" min="2" max="10" value="6"></label>
+          </div>
+        </details>
+      </section>
+    </div>
+    <footer class="sheet-foot"><span class="hint">Progress saves after every step. Keep Chrome open.</span><button class="btn primary" type="submit">Start research</button></footer>
+  </form>
+</dialog>
+
+<dialog id="moz-dialog" class="sheet small">
+  <header class="sheet-head"><h2>Metrics not visible on Google</h2></header>
+  <div class="sheet-body"><p id="moz-message"></p><p class="hint">Continue researches without metric filters. Your requested criteria stay in the report. Stop keeps your place so you can fix the SEO extension and resume.</p></div>
+  <footer class="sheet-foot"><button class="btn" id="moz-stop" type="button">Stop campaign</button><button class="btn primary" id="moz-continue" type="button">Continue without filters</button></footer>
+</dialog>
+
+<dialog id="detail-dialog" class="drawer"><div id="detail-body"></div></dialog>
+
+<dialog id="export-dialog" class="sheet small">
+  <header class="sheet-head"><h2>Export CSV</h2><button class="icon-btn" data-close="export-dialog" type="button" aria-label="Close">&times;</button></header>
+  <div class="sheet-body">
+    <p id="export-count"></p>
+    <label>Layout<select id="export-mode"><option value="publisher">One row per website</option><option value="contacts">One row per email (audit)</option></select></label>
+    <label class="check"><input id="export-all" type="checkbox"> Include excluded and unclassified emails</label>
+  </div>
+  <footer class="sheet-foot"><button class="btn primary" id="download-csv" type="button">Download CSV</button></footer>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="vendor/publisher-deps.js"></script>
+<script src="publisher-core.js"></script>
+<script src="publisher-rules.js"></script>
+<script src="publisher-da.js"></script>
+<script src="publisher-topics.js"></script>
+<script src="publisher-model.js"></script>
+<script src="publisher-sheets.js"></script>
+<script src="publisher-output.js"></script>
+<script src="publisher-language.js"></script>
+<script src="publisher-export.js"></script>
+<script src="publisher-ui.js"></script>
+</body>
+</html>

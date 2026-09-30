@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Outreach Desk \u2014 Guest Post Research",
+  "version": "0.11.0",
+  "description": "Standalone guest-post research with niche and title evidence, DA/DR/Spam/Age screening from your SEO extension, sent-mail history, typed contacts and Google Sheets output.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "sidePanel",
+    "tabGroups"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "publisher-worker.js"
+  },
+  "action": {
+    "default_title": "Open guest-post research"
+  },
+  "side_panel": {
+    "default_path": "publisher-panel.html"
+  },
+  "icons": {
+    "16": "icons/outreach16.png",
+    "48": "icons/outreach48.png",
+    "128": "icons/outreach128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}
