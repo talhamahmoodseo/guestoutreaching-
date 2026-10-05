@@ -7,7 +7,7 @@ const STATUS = {running: 'Running', paused: 'Paused', stopped: 'Stopped', comple
 const RELATIONS = ['New', 'Contacted', 'Follow-up', 'Responded', 'Negotiating', 'Agreed', 'Not a fit'];
 const LANG = {any: 'Any language', unknown: 'Unknown', en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ur: 'Urdu', ar: 'Arabic'};
 const PAGE_SIZE = 50;
-let state, campaign = '', view = 'opportunities', bucket = 'all', page = 0, selected = new Set(), settingsLoaded = false, busy = false, toastTimer, openId = '', lastJSON = '';
+let state, campaign = '', view = 'results', bucket = 'all', page = 0, selected = new Set(), settingsLoaded = false, busy = false, toastTimer, openId = '', lastJSON = '';
 
 const date = v => v ? new Date(v).toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'}) : 'Not checked';
 const time = v => new Date(v).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
@@ -49,8 +49,22 @@ function reasonOf(r) {
   return 'other';
 }
 const missingMetrics = r => !Number.isFinite(r.da) || !Number.isFinite(r.dr) || !Number.isFinite(r.spam) || !Number.isInteger(r.age);
+// One row per metric, both bounds, in the same order everywhere. docs/PRODUCT-STRUCTURE.md section 6.
+const METRICS = [['da', 'da', 1], ['dr', 'dr', 1], ['spam', 'spam', 1], ['age', 'age', 12], ['traffic', 'traffic', 1]];
+const NO_METRICS = Object.fromEntries(METRICS.flatMap(([k]) => [[k + 'Min', null], [k + 'Max', null]]).concat([['hideMissing', false]]));
 function metricFilters() {
-  return {daMin: num('#da-min-filter'), daMax: num('#da-max-filter'), drMin: num('#dr-min-filter'), spamMax: num('#spam-max-filter'), ageMin: num('#age-min-filter'), trafficMin: num('#traffic-min-filter'), hideMissing: $('#hide-missing-filter').checked};
+  const out = {hideMissing: $('#hide-missing-filter').checked};
+  for (const [key] of METRICS) { out[key + 'Min'] = num('#' + key + '-min-filter'); out[key + 'Max'] = num('#' + key + '-max-filter'); }
+  return out;
+}
+function metricsPass(r, m) {
+  for (const [key, field, scale] of METRICS) {
+    const lo = m[key + 'Min'], hi = m[key + 'Max'];
+    if (lo == null && hi == null) continue;
+    if (lo != null && !passMetric(r[field], v => v >= lo * scale, m.hideMissing)) return false;
+    if (hi != null && !passMetric(r[field], v => v <= hi * scale, m.hideMissing)) return false;
+  }
+  return true;
 }
 function passMetric(value, test, hideMissing) { if (value == null || !Number.isFinite(value)) return !hideMissing; return test(value); }
 function filtered() {
@@ -58,16 +72,14 @@ function filtered() {
   const term = $('#search').value.toLowerCase().trim(), type = $('#type-filter').value, emailType = $('#email-filter').value, availability = $('#availability-filter').value,
     sort = $('#sort').value, niche = $('#niche-filter').value, language = $('#language-filter').value, keyword = $('#keyword-filter').value,
     tlds = $('#tld-filter').value.toLowerCase().split(/[\s,]+/).map(x => x.replace(/^\./, '')).filter(Boolean), recent = Number($('#recent-filter').value) || 0,
-    score = Number($('#score-min-filter').value) || 0, m = bucket === 'rejected' ? {daMin: null, daMax: null, drMin: null, spamMax: null, ageMin: null, trafficMin: null, hideMissing: false} : metricFilters(), reason = $('#reason-filter').value, missingOnly = $('#missing-only-filter').checked, rejectedTab = bucket === 'rejected';
+    score = Number($('#score-min-filter').value) || 0, m = bucket === 'rejected' ? NO_METRICS : metricFilters(), reason = $('#reason-filter').value, missingOnly = $('#missing-only-filter').checked, rejectedTab = bucket === 'rejected';
   const rows = campaignRows().filter(r =>
     (bucket === 'all' || r.bucket === bucket) && (!keyword || queries(r).includes(keyword)) &&
     (!rejectedTab || !reason || reasonOf(r) === reason) && (rejectedTab || !missingOnly || missingMetrics(r)) && (rejectedTab || !type || types(r).includes(type)) &&
     (!emailType || R.usableContacts(r).some(e => e.kind === emailType)) &&
     (!availability || availability === 'email' && (r.emails || []).some(e => !e.recheckPending) || availability === 'form' && r.bucket === 'form' || availability === 'none' && !(r.emails || []).some(e => !e.recheckPending)) &&
     (!niche || r.niche === niche) && (!language || r.language === language) &&
-    (m.daMin == null || passMetric(r.da, v => v >= m.daMin, m.hideMissing)) && (m.daMax == null || passMetric(r.da, v => v <= m.daMax, m.hideMissing)) &&
-    (m.drMin == null || passMetric(r.dr, v => v >= m.drMin, m.hideMissing)) && (m.spamMax == null || passMetric(r.spam, v => v <= m.spamMax, m.hideMissing)) &&
-    (m.ageMin == null || passMetric(r.age, v => v >= m.ageMin * 12, m.hideMissing)) && (m.trafficMin == null || passMetric(r.traffic, v => v >= m.trafficMin, m.hideMissing)) &&
+    metricsPass(r, m) &&
     (!tlds.length || tlds.includes(suffix(r))) && (!recent || r.collectedAt && Date.now() - Date.parse(r.collectedAt) <= recent * 86400000) && (r.score || 0) >= score &&
     (!term || [r.domain, r.title, r.campaignName, ...(r.emails || []).map(e => e.email), ...queries(r)].join(' ').toLowerCase().includes(term)));
   const n = v => Number.isFinite(v) ? v : -1;
@@ -113,14 +125,14 @@ function renderResults() {
   if (!rows.length) {
     $('#results').innerHTML = state.leads.length
       ? `<div class="empty"><h2>No results match these filters</h2><p>Clear a filter or switch campaign to see the rest of your research.</p><div class="actions"><button class="btn" data-reset type="button">Clear filters</button></div></div>`
-      : `<div class="empty"><h2>No research yet</h2><p>Connect your history first so contacted domains are skipped, then start a campaign.</p><div class="actions"><button class="btn primary" data-start type="button">New campaign</button><button class="btn" data-go="databases" type="button">Connect sources</button></div></div>`;
+      : `<div class="empty"><h2>No research yet</h2><p>Connect your history first so contacted domains are skipped, then start a campaign.</p><div class="actions"><button class="btn primary" data-start type="button">New campaign</button><button class="btn" data-go="connections" type="button">Set up connections</button></div></div>`;
     return;
   }
   const slice = rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
   $('#results').innerHTML = `<div class="table-wrap"><table><thead><tr><th class="pick"><input type="checkbox" id="select-page" aria-label="Select visible results" ${slice.every(r => selected.has(r.id)) ? 'checked' : ''}></th><th>Website</th><th>${bucket === 'rejected' ? 'Reason' : 'Best contact'}</th><th class="num">Score</th><th class="num">DA</th><th class="num">DR</th><th class="num">Spam</th><th class="num">Age</th><th class="num">Traffic</th><th>Status</th><th></th></tr></thead><tbody>` +
     slice.map(r => {
       const o = offer(r), e = best(r), qs = queries(r);
-      const contact = e ? `<span class="email">${esc(e.email)}</span><span class="kind">${esc(e.kind || 'Email')}${R.usableContacts(r).length > 1 ? ', +' + (R.usableContacts(r).length - 1) + ' more' : ''}</span>`
+      const contact = e ? `<span class="email">${esc(e.email)}<button class="copy-mini" data-copy="${esc(e.email)}" title="Copy ${esc(e.email)}" type="button" aria-label="Copy main email">Copy</button></span><span class="kind">${esc(e.kind || 'Email')}${R.usableContacts(r).length > 1 ? ', +' + (R.usableContacts(r).length - 1) + ' more' : ''}</span>`
         : `<span class="none">${r.bucket === 'rejected' ? esc(shortReason(r)) : r.forms?.length ? 'Contact form' : 'No useful email'}</span>`;
       const status = r.mailHistory?.length ? pill('Contacted before', 'rejected') : pill(BUCKETS[r.bucket] || 'Review', r.bucket);
       return `<tr data-detail="${esc(r.id)}" class="${selected.has(r.id) ? 'selected' : ''}"><td class="pick"><input type="checkbox" data-select="${esc(r.id)}" aria-label="Select ${esc(r.domain)}" ${selected.has(r.id) ? 'checked' : ''}></td>
@@ -137,14 +149,60 @@ function renderResults() {
 }
 function shortReason(r) { const t = r.hardReject?.reason || r.decisionReason || 'Rejected'; return t.length > 70 ? t.slice(0, 67) + '...' : t; }
 
+/* ---------- Campaign progress ----------
+   One calculation, reused by the progress card, the sidebar run box and the campaigns page,
+   so the numbers can never drift apart. docs/PRODUCT-STRUCTURE.md section 5. */
+const PHASE = {sync: 'Checking your sources', search: 'Searching Google', research: 'Researching websites'};
+function progressOf(c) {
+  if (!c) return null;
+  const s = c.stats || {};
+  const goal = c.contactGoal === 'form' ? s.form || 0 : c.contactGoal === 'any' || c.includeForms ? (s.ready || 0) + (s.form || 0) : s.ready || 0;
+  const target = Math.max(1, c.target || 1);
+  return {
+    goal, target, percent: Math.min(100, Math.round(goal / target * 100)),
+    phase: c.status === 'complete' ? 'Finished' : c.status === 'running' ? (PHASE[c.phase] || 'Working') : STATUS[c.status] || c.status,
+    found: s.links || 0, domains: s.unique || 0,
+    screened: (s.daRejected || 0) + (s.tldRejected || 0) + (s.wrongNiche || 0) + (s.titleRejected || 0) + (s.excluded || 0),
+    history: (s.contacted || 0) + (s.database || 0),
+    researched: s.researched || 0, ready: s.ready || 0, form: s.form || 0, noEmail: s.no_email || 0, rejected: s.rejected || 0,
+    queued: c.queued || 0, live: (c.jobs || []).length
+  };
+}
+function avgScore() { const scored = campaignRows().filter(r => r.collectedAt); return scored.length ? Math.round(scored.reduce((a, r) => a + (r.score || 0), 0) / scored.length) : 0; }
+function renderProgress() {
+  const c = selectedCampaign(), box = $('#campaign-progress'), p = progressOf(c);
+  box.hidden = !p;
+  if (!p) return;
+  const running = c.status === 'running', bad = ['database_blocked', 'mail_blocked', 'da_blocked', 'verification'].includes(c.status);
+  const step = (n, label, cls = '') => `<div class="${cls}"><b>${n.toLocaleString()}</b><span>${label}</span></div>`;
+  box.innerHTML = `<div class="progress-top">
+      <div class="progress-name"><h2>${esc(c.name || c.niche)}</h2>
+        <span class="phase ${running ? 'live' : bad ? 'bad' : ''}">${running ? '<i class="pulse"></i>' : ''}${esc(p.phase)}</span></div>
+      <div class="progress-figure"><b>${p.goal}</b><span>of ${p.target} ready</span></div>
+    </div>
+    <div class="meter big"><i style="width:${p.percent}%"></i></div>
+    <div class="funnel">
+      ${step(p.found, 'Found on Google')}<span class="arrow" aria-hidden="true">›</span>
+      ${step(p.screened, 'Skipped by filters')}<span class="arrow" aria-hidden="true">›</span>
+      ${step(p.history, 'Skipped as known')}<span class="arrow" aria-hidden="true">›</span>
+      ${step(p.researched, 'Researched')}<span class="arrow" aria-hidden="true">›</span>
+      ${step(p.queued, 'Still queued', p.queued ? 'queued' : '')}
+    </div>
+    <div class="outcome">
+      <button class="chip-stat ready" data-bucket="ready" type="button"><b>${p.ready}</b> Ready</button>
+      <button class="chip-stat form" data-bucket="form" type="button"><b>${p.form}</b> Form only</button>
+      <button class="chip-stat none" data-bucket="no_email" type="button"><b>${p.noEmail}</b> No email</button>
+      <button class="chip-stat bad" data-bucket="rejected" type="button"><b>${p.rejected}</b> Rejected</button>
+      <span class="chip-stat flat"><b>${avgScore()}</b> Avg. score</span>
+      ${p.live ? `<span class="live-now">${p.live} open right now</span>` : ''}
+    </div>`;
+}
 function renderReport() {
   const select = $('#campaign-filter');
   select.innerHTML = '<option value="">All campaigns</option>' + state.campaigns.map(c => `<option value="${esc(c.id)}">${esc(c.name || c.niche || 'Imported campaign')}</option>`).join('');
   select.value = campaign;
-  const rows = campaignRows(), c = selectedCampaign(), scored = rows.filter(r => r.collectedAt), avg = scored.length ? Math.round(scored.reduce((a, r) => a + (r.score || 0), 0) / scored.length) : 0;
-  const stats = c
-    ? [['Ready', c.stats.ready || 0, 'good'], ['Form only', c.stats.form || 0], ['Researched', c.stats.researched || 0], ['Skipped: history', (c.stats.contacted || 0) + (c.stats.database || 0)], ['Skipped: filters', (c.stats.daRejected || 0) + (c.stats.tldRejected || 0)], ['Avg. score', avg]]
-    : [['Ready', rows.filter(r => r.bucket === 'ready').length, 'good'], ['Websites', new Set(rows.map(r => r.domain)).size], ['Campaigns', state.campaigns.length], ['Avg. score', avg]];
+  const rows = campaignRows(), c = selectedCampaign();
+  const stats = c ? [] : [['Ready', rows.filter(r => r.bucket === 'ready').length, 'good'], ['Websites', new Set(rows.map(r => r.domain)).size], ['Campaigns', state.campaigns.length], ['Avg. score', avgScore()]];
   const criteria = c ? [
     c.niche, LANG[c.researchLanguage] || 'Any language',
     c.requestedDA ? metricText(c) + (c.daBypass ? ' (continued without filters)' : '') : 'No metric filters',
@@ -160,11 +218,17 @@ function renderReport() {
     (!c && waiting ? `<div class="report-actions"><button class="btn small accent-btn" data-research-queue="${esc(waiting.id)}" type="button">Research ${waiting.queued} waiting in ${esc(waiting.name || waiting.niche)}</button></div>` : '') +
     (c ? `<div class="report-actions">${pill(STATUS[c.status] || c.status, c.status === 'complete' ? 'ok' : c.status === 'running' ? '' : 'warn')}<button class="btn small" data-duplicate="${esc(c.id)}" type="button">Duplicate</button>${c.queued && c.status !== 'running' ? `<button class="btn small accent-btn" data-research-queue="${esc(c.id)}" type="button">Research ${c.queued} waiting</button>` : ''}${c.status !== 'complete' ? `<button class="btn small" data-campaign-command="${c.status === 'running' ? 'PUB_PAUSE' : 'PUB_RESUME'}" data-campaign-id="${esc(c.id)}" type="button">${c.status === 'running' ? 'Pause' : 'Resume'}</button>` : ''}${queued && c.status !== 'running' ? `<button class="btn small accent-btn" data-research-queue="${esc(c.id)}" type="button">Research ${queued} waiting</button>` : ''}</div><div class="criteria">${criteria.map(x => pill(x)).join('')}</div>` : '');
 }
+// The report states the window the campaign actually asked for, both ends.
+const CRITERIA = [['DA', 'daMin', 'daMax', String], ['DR', 'drMin', 'drMax', String],
+  ['Spam', 'spamMin', 'spamMax', v => v + '%'], ['Age', 'ageMinMonths', 'ageMaxMonths', v => Math.round(v / 12 * 10) / 10 + 'y'],
+  ['Traffic', 'trafficMin', 'trafficMax', traffic]];
 function metricText(c) {
   const parts = [];
-  if (c.daMin != null || c.daMax != null) parts.push('DA ' + (c.daMin ?? 0) + '-' + (c.daMax ?? 100));
-  if (c.drMin != null) parts.push('DR ' + c.drMin + '+'); if (c.spamMax != null) parts.push('Spam up to ' + c.spamMax + '%');
-  if (c.ageMinMonths != null) parts.push('Age ' + Math.round(c.ageMinMonths / 12 * 10) / 10 + 'y+'); if (c.trafficMin != null) parts.push('Traffic ' + traffic(c.trafficMin) + '+');
+  for (const [label, lo, hi, fmt] of CRITERIA) {
+    const min = c[lo], max = c[hi];
+    if (min == null && max == null) continue;
+    parts.push(label + ' ' + (min != null && max != null ? fmt(min) + '-' + fmt(max) : min != null ? fmt(min) + '+' : 'up to ' + fmt(max)));
+  }
   return parts.join(', ') || 'DA shown';
 }
 
@@ -174,10 +238,10 @@ function renderRun() {
   box.hidden = !showCampaign && !metricBox;
   if (box.hidden) return;
   if (!showCampaign) { box.innerHTML = metricBox; return; }
-  const n = c.contactGoal === 'form' ? c.stats.form : c.contactGoal === 'any' || c.includeForms ? c.stats.ready + c.stats.form : c.stats.ready;
-  const warn = c.status !== 'running', jobs = c.jobs || [];
+  const p = progressOf(c), warn = c.status !== 'running', jobs = c.jobs || [];
   box.innerHTML = `<div class="run-head"><strong title="${esc(c.name)}">${esc(c.name || c.niche)}</strong><span class="run-state ${warn ? 'warn' : ''}">${esc(STATUS[c.status] || c.status)}</span></div>
-    <div class="run-count"><b>${n}</b>of ${c.target} ready</div><div class="meter"><i style="width:${Math.min(100, n / Math.max(1, c.target) * 100)}%"></i></div>
+    <div class="run-count"><b>${p.goal}</b>of ${p.target} ready</div><div class="meter"><i style="width:${p.percent}%"></i></div>
+    <p class="run-phase">${esc(p.phase)}${p.queued ? ' · ' + p.queued + ' queued' : ''}${p.researched ? ' · ' + p.researched + ' researched' : ''}</p>
     ${jobs.length ? `<div class="jobs">${jobs.map(j => `<div class="job ${j.parked ? 'parked' : ''}"><i class="pulse"></i><span title="${esc(j.url)}">${esc(j.domain)}${j.parked ? ' (verify)' : ''}</span>${j.parked ? `<button data-open-tab="research" data-domain="${esc(j.domain)}" type="button">Open</button>` : ''}<button data-skip="${esc(j.domain)}" type="button">Skip</button></div>`).join('')}</div>` : ''}
     <p class="run-msg">${esc(c.message || '')}</p>
     <div class="actions"><button class="btn" data-command="${c.status === 'running' ? 'PUB_PAUSE' : 'PUB_RESUME'}" type="button">${c.status === 'running' ? 'Pause' : 'Resume'}</button>${['verification', 'paused', 'da_blocked'].includes(c.status) && (c.verificationKind === 'search' || !jobs.length) ? '<button class="btn" data-open-tab="search" type="button">Open Google tab</button><button class="btn" data-command="PUB_SKIP" type="button">Skip keyword</button>' : ''}<button class="btn" data-command="PUB_STOP" type="button">Stop</button></div>${metricBox}`;
@@ -189,6 +253,7 @@ function renderCampaigns() {
   $('#campaign-list').innerHTML = list.length ? list.map(c => `<article class="camp">
     <div class="camp-head"><div><h2>${esc(c.name || c.niche)}</h2><p>${date(c.createdAt)}, ${c.manual ? 'own website list' : c.queries.length + ' keywords'}, ${esc(c.message || '')}</p></div>
       <div class="actions">${pill(STATUS[c.status] || c.status, c.status === 'complete' ? 'ok' : 'warn')}<button class="btn small" data-report="${esc(c.id)}" type="button">View results</button><button class="btn small" data-duplicate="${esc(c.id)}" type="button">Duplicate</button>${c.queued && c.status !== 'running' ? `<button class="btn small accent-btn" data-research-queue="${esc(c.id)}" type="button">Research ${c.queued} waiting</button>` : ''}${c.status !== 'complete' ? `<button class="btn small" data-campaign-command="${c.status === 'running' ? 'PUB_PAUSE' : 'PUB_RESUME'}" data-campaign-id="${esc(c.id)}" type="button">${c.status === 'running' ? 'Pause' : 'Resume'}</button>` : ''}</div></div>
+    <div class="camp-progress"><div class="meter big"><i style="width:${progressOf(c).percent}%"></i></div><span>${progressOf(c).goal} of ${progressOf(c).target} ready · ${esc(progressOf(c).phase)}</span></div>
     <div class="camp-stats">${[['Ready', c.stats.ready], ['Form only', c.stats.form], ['In queue', c.queued || 0], ['Researched', c.stats.researched], ['Unique domains', c.stats.unique], ['Skipped: contacted', c.stats.contacted], ['Skipped: in sources', c.stats.database], ['Skipped: metrics', c.stats.daRejected], ['Skipped: title/niche', (c.stats.titleRejected || 0) + (c.stats.wrongNiche || 0)], ['Google pages', c.stats.searchPages]].map(([k, v]) => `<div><b>${v || 0}</b><span>${k}</span></div>`).join('')}</div>
     <details><summary>Keyword performance</summary><div class="table-wrap"><table><thead><tr><th>Keyword</th><th class="num">Pages</th><th class="num">Links</th><th class="num">Rejected</th><th class="num">Queued</th><th class="num">Ready</th></tr></thead><tbody>${Object.entries(c.queryStats || {}).map(([q, d]) => `<tr><td>${esc(q)}</td><td class="num">${d.pages || 0}</td><td class="num">${d.links || 0}</td><td class="num">${d.rejected || 0}</td><td class="num">${d.queued || 0}</td><td class="num">${d.ready || 0}</td></tr>`).join('') || '<tr><td colspan="6">No keywords searched yet.</td></tr>'}</tbody></table></div></details>
     <details><summary>Skipped websites and why (${c.skips?.length || 0})</summary><div class="table-wrap"><table><tbody>${(c.skips || []).slice(0, 300).map(x => `<tr><td>${esc(x.domain)}</td><td>${esc(x.reason)}</td></tr>`).join('') || '<tr><td>Nothing skipped.</td></tr>'}</tbody></table></div></details>
@@ -196,19 +261,53 @@ function renderCampaigns() {
   </article>`).join('') : '<div class="empty"><h2>No campaigns yet</h2><p>Each campaign keeps its own keywords, criteria, progress and skip reasons.</p><div class="actions"><button class="btn primary" data-start type="button">New campaign</button></div></div>';
 }
 
-function renderSources() {
-  const o = state.output || {};
-  $('#output-pill').textContent = o.endpoint ? (o.status || 'Not tested') : 'Not connected';
-  $('#output-pill').className = 'pill ' + (o.status === 'Connected' ? 'ok' : o.status === 'Error' ? 'error' : o.endpoint ? 'warn' : '');
-  $('#sheet-mode').value = state.settings.sheetMode || 'manual';
-  $('#output-status').textContent = o.endpoint ? `${o.account ? o.account + '. ' : ''}${o.pendingIds?.length || 0} results waiting to sync${o.lastSyncedAt ? ', last checked ' + date(o.lastSyncedAt) : ''}.${o.error ? ' ' + o.error : ''}` : 'Not connected in this Chrome profile. Restoring a backup does not bring the Apps Script URL back; paste it again.';
-  $('#output-status').classList.toggle('bad', o.status === 'Error' || (!o.endpoint && !!o.status && o.status !== 'Not connected'));
-  if (document.activeElement !== $('#output-endpoint')) $('#output-endpoint').value = o.endpoint || '';
+/* ---------- Connections ----------
+   Three systems that never mix: what is read in from your own lists, what is read in from
+   your mailboxes, and where finished results are written out. */
+const HEALTH = {new: ['Not checked', 'warn'], checking: ['Checking', ''], ready: ['Connected', 'ok'], degraded: ['Reconnecting', 'warn'], error: ['Error', 'error']};
+const healthOf = t => HEALTH[t && t.status] || HEALTH.new;
+const healthPill = t => { const [label, kind] = healthOf(t); return pill(label, kind); };
+const broken = () => (state.databases || []).some(d => d.status === 'error') || (state.mailAccounts || []).some(a => a.status === 'error') || (state.output?.endpoint && state.output.status === 'error');
+function renderConnectionsDot() { const dot = $('#connections-dot'); if (dot) dot.hidden = !state || !broken(); }
+
+function renderConnections() {
+  const o = state.output || {}, accounts = state.mailAccounts || [];
+  // The Output Sheet is a destination. It never appears in the research sources list.
+  const sources = state.databases.filter(d => d.kind !== 'output'), outputHistory = state.databases.find(d => d.kind === 'output');
+
+  $('#source-count').textContent = sources.length + (sources.length === 1 ? ' source' : ' sources');
+  $('#source-list').innerHTML = sources.length ? sources.map(d => `<div class="row"><div class="grow"><strong>${esc(d.name)}</strong>
+      <span>${d.kind === 'sheet' ? 'Google Sheet' : 'Uploaded file'} · ${(d.count || 0).toLocaleString()} domains · ${(d.contactedCount || 0).toLocaleString()} marked contacted · ${d.tabs?.length || 0} tabs · checked ${date(d.lastSyncedAt)}</span>
+      ${d.error ? `<span class="err">${esc(d.error)}</span>` : ''}</div>
+      ${healthPill(d)}${d.kind === 'sheet' ? `<button class="btn small" data-sync="${esc(d.id)}" type="button">Check now</button>${ext(d.url, 'Open', 'link')}` : ''}
+      <button class="link" data-rename="${esc(d.id)}" type="button">Rename</button><button class="link danger" data-remove="${esc(d.id)}" type="button">Remove</button></div>`).join('')
+    : '<p class="hint">No research sources yet. Add a Google Sheet link or upload a CSV/XLSX list and it will check itself.</p>';
+
+  const sameAccount = a => o.endpoint && a.endpointHint && o.endpoint.endsWith(String(a.endpointHint).replace('…', ''));
+  const outputIsAccount = accounts.some(sameAccount);
+  $('#mail-offer').innerHTML = o.endpoint && o.status === 'ready' && !outputIsAccount
+    ? `<div class="connect-offer"><div class="grow"><strong>Use your Output Sheet's Google account here too</strong><span>${esc(o.account || 'That account')} already runs the script, so its Sent folder can be checked without a second deployment.</span></div><button class="btn small" id="use-output-mail" type="button">Add it</button></div>`
+    : '';
   $('#mail-history').checked = !!state.settings.mailHistory;
-  const accounts = state.mailAccounts || [];
-  $('#mail-list').innerHTML = accounts.length ? accounts.map(a => `<div class="row"><div class="grow"><strong>${esc(a.label)}</strong><span>${esc(a.email || 'Account')}, URL ${esc(a.endpointHint)}${a.hasSecret ? ', with secret' : ''}</span>${a.error ? `<span class="err">${esc(a.error)}</span>` : ''}</div>${pill(a.status || 'Connected', a.status === 'Error' ? 'error' : 'ok')}<button class="btn small" data-mail-test="${esc(a.id)}" type="button">Test</button><button class="link danger" data-mail-remove="${esc(a.id)}" type="button">Remove</button></div>`).join('') : '<p class="hint">No accounts yet. Add the URL of each Gmail account you send outreach from.</p>';
-  $('#db-count').textContent = state.databases.length + ' sources';
-  $('#db-list').innerHTML = state.databases.length ? state.databases.map(d => `<div class="row"><div class="grow"><strong>${esc(d.name)}</strong><span>${d.kind === 'output' ? 'Output Sheet history' : d.kind === 'sheet' ? 'Public Google Sheet' : 'Uploaded file'}: ${(d.count || 0).toLocaleString()} domains, ${(d.contactedCount || 0).toLocaleString()} contacted, ${d.tabs?.length || 0} tabs, checked ${date(d.lastSyncedAt)}</span>${d.error ? `<span class="err">${esc(d.error)}</span>` : ''}</div>${pill(d.status === 'ready' ? 'Ready' : d.status === 'error' ? 'Error' : 'Not checked', d.status === 'ready' ? 'ok' : d.status === 'error' ? 'error' : 'warn')}${d.kind !== 'file' ? `<button class="btn small" data-sync="${esc(d.id)}" type="button">Refresh</button>` : ''}${d.kind === 'sheet' ? ext(d.url, 'Open', 'link') : ''}${d.kind !== 'output' ? `<button class="link" data-rename="${esc(d.id)}" type="button">Rename</button><button class="link danger" data-remove="${esc(d.id)}" type="button">Remove</button>` : ''}</div>`).join('') : '<p class="hint">No sources yet.</p>';
+  $('#mail-list').innerHTML = accounts.length ? accounts.map(a => `<div class="row"><div class="grow"><strong>${esc(a.label)}</strong>
+      <span>${esc(a.email || 'Account')} · URL ${esc(a.endpointHint)}${a.hasSecret ? ' · with secret' : ''}${a.checkedAt ? ' · checked ' + date(a.checkedAt) : ''}</span>
+      ${a.error ? `<span class="err">${esc(a.error)}</span>` : ''}</div>
+      ${healthPill(a)}<button class="btn small" data-mail-test="${esc(a.id)}" type="button">Test</button><button class="link danger" data-mail-remove="${esc(a.id)}" type="button">Remove</button></div>`).join('')
+    : '<p class="hint">No mailboxes connected. Without this, a domain you emailed last month can come back as a new opportunity.</p>';
+
+  const [label, kind] = healthOf(o);
+  $('#output-pill').textContent = o.endpoint ? label : 'Not connected';
+  $('#output-pill').className = 'pill ' + (o.endpoint ? kind : '');
+  for (const el of $$('input[name=sheetMode]')) el.checked = el.value === (state.settings.sheetMode || 'manual');
+  const waiting = o.pendingIds?.length || 0;
+  $('#output-status').textContent = o.endpoint
+    ? `${o.account ? o.account + ' · ' : ''}${waiting ? waiting + ' result' + (waiting === 1 ? '' : 's') + ' waiting to send' : 'Nothing waiting to send'}${o.lastSyncedAt ? ' · last sent ' + date(o.lastSyncedAt) : ''}.${o.error ? ' ' + o.error : ''}`
+    : 'Not connected in this Chrome profile. Restoring a backup deliberately leaves the Apps Script URL out, so paste it again here.';
+  $('#output-status').classList.toggle('bad', o.status === 'error');
+  if (document.activeElement !== $('#output-endpoint')) $('#output-endpoint').value = o.endpoint || '';
+  $('#output-side-roles').innerHTML = o.endpoint
+    ? `<strong>This Sheet also counts as history.</strong> Rows whose Outreach Status says contacted, and every other tab in the same workbook, are checked before a website is researched${outputHistory ? `, currently ${(outputHistory.count || 0).toLocaleString()} domains read ${date(outputHistory.lastSyncedAt)}` : ''}. That is a property of this destination, not a separate source.${outputIsAccount ? ' Its Google account is also connected under Email history.' : ''}`
+    : '';
 }
 
 function renderSettings() {
@@ -227,10 +326,11 @@ function renderSenders() {
 function render() {
   if (!state) return;
   renderRun(); renderMoz();
-  if (view === 'opportunities') { renderReport(); renderTabs(); renderResults(); }
-  if (view === 'searches') renderCampaigns();
-  if (view === 'databases') renderSources();
-  if (view === 'preferences') { renderSettings(); renderSenders(); }
+  renderConnectionsDot();
+  if (view === 'results') { renderProgress(); renderReport(); renderTabs(); renderResults(); }
+  if (view === 'campaigns') renderCampaigns();
+  if (view === 'connections') renderConnections();
+  if (view === 'settings') { renderSettings(); renderSenders(); }
 }
 async function refresh(force = false) {
   if (busy) return; busy = true;
@@ -263,7 +363,7 @@ function openCampaign(from) {
     set('niche', from.niche); set('campaignName', (from.name || from.niche) + ' (copy)'); set('researchLanguage', from.researchLanguage); set('target', from.target); set('contactGoal', from.contactGoal || 'email');
     set('senderId', from.senderId || ''); set('subtopics', from.subtopics); f.elements.relatedTopics.checked = !!from.relatedTopics; f.elements.useGemini.checked = !!from.useGemini;
     if (from.manual) { set('urls', ''); } else set('queries', (from.queries || []).join('\n'));
-    set('daMin', from.daMin); set('daMax', from.daMax); set('drMin', from.drMin); set('spamMax', from.spamMax); set('ageMinYears', from.ageMinMonths != null ? from.ageMinMonths / 12 : null); set('trafficMin', from.trafficMin);
+    set('daMin', from.daMin); set('daMax', from.daMax); set('drMin', from.drMin); set('drMax', from.drMax); set('spamMin', from.spamMin); set('spamMax', from.spamMax); set('ageMinYears', from.ageMinMonths != null ? from.ageMinMonths / 12 : null); set('ageMaxYears', from.ageMaxMonths != null ? from.ageMaxMonths / 12 : null); set('trafficMin', from.trafficMin); set('trafficMax', from.trafficMax);
     set('onVerification', from.onVerification || 'skip'); set('missingMetric', from.missingMetric || 'keep'); set('tlds', (from.tlds || []).join(', ')); set('parallel', from.parallel); set('maxPages', from.maxPages); set('budget', from.budget); set('pageLimit', from.pageLimit);
     f.elements.checkDatabase.checked = from.checkDatabase !== false; f.elements.checkContacted.checked = from.checkContacted !== false;
     loadTopics();
@@ -327,7 +427,7 @@ function selectedRows() { const rows = filtered(); return selected.size ? state.
 function download(name, data, type) { const u = URL.createObjectURL(new Blob([data], {type})), a = document.createElement('a'); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 30000); }
 function resetFilters() {
   bucket = 'all'; page = 0; selected.clear(); $('#search').value = '';
-  for (const id of ['type-filter', 'email-filter', 'availability-filter', 'keyword-filter', 'niche-filter', 'da-min-filter', 'da-max-filter', 'dr-min-filter', 'spam-max-filter', 'age-min-filter', 'traffic-min-filter', 'tld-filter', 'language-filter', 'recent-filter', 'score-min-filter']) $('#' + id).value = '';
+  for (const id of ['type-filter', 'email-filter', 'availability-filter', 'keyword-filter', 'niche-filter', 'tld-filter', 'language-filter', 'recent-filter', 'score-min-filter', ...METRICS.flatMap(([k]) => [k + '-min-filter', k + '-max-filter'])]) $('#' + id).value = '';
   $('#hide-missing-filter').checked = false; $('#missing-only-filter').checked = false; $('#reason-filter').value = ''; render();
 }
 
@@ -350,6 +450,7 @@ document.addEventListener('click', e => {
   if (b.id === 'clear-selection') { selected.clear(); renderResults(); }
   if (b.id === 'select-all') { for (const r of filtered()) selected.add(r.id); renderResults(); }
   if (b.id === 'metrics-stop') action(() => send('PUB_METRICS_STOP'), b);
+  if (b.id === 'use-output-mail') action(async () => { await send('PUB_OUTPUT_SETTINGS', {endpoint: state.output.endpoint, useForMail: true}); toast('Added to email history. Its Sent folder is checked from now on.'); }, b);
   if (b.id === 'send-sheet') action(async () => { const r = await send('PUB_SEND_SHEET', {ids: [...selected]}); toast(r.sent + ' results sent to your Sheet.'); selected.clear(); }, b);
   if (b.id === 'recheck-metrics') action(async () => { const r = await send('PUB_RECHECK_METRICS', {ids: [...selected], parallel: 5}); toast('Rechecking metrics for ' + r.queued + ' websites, 5 at a time. Keep Chrome open.'); selected.clear(); }, b);
   if (b.id === 'delete-selected') action(async () => { const n = selected.size; if (!confirm('Delete ' + n + ' selected result' + (n > 1 ? 's' : '') + '? Only these rows are removed. Results in other campaigns stay.')) return; const r = await send('PUB_DELETE', {ids: [...selected]}); toast(r.deleted + ' deleted.'); selected.clear(); }, b);
@@ -358,12 +459,12 @@ document.addEventListener('click', e => {
   if (d.command) action(() => send(d.command), b);
   if (d.skip) action(() => send('PUB_SKIP', {domain: d.skip}), b);
   if (d.openTab) action(() => send('PUB_OPEN_TAB', {kind: d.openTab, domain: d.domain}), b);
-  if (d.copy) action(async () => { await navigator.clipboard.writeText(d.copy); toast('Email copied.'); }, b);
+  if (d.copy) action(async () => { await navigator.clipboard.writeText(d.copy); toast(d.copy + ' copied.'); }, b);
   if (d.decision) updateDetail(() => send('PUB_UPDATE_LEAD', {id: d.lead, reviewDecision: d.decision}), b);
   if (d.primary) updateDetail(() => send('PUB_UPDATE_LEAD', {id: d.lead, selectedEmail: d.primary}), b);
   if (d.recheck) action(async () => { await send('PUB_RECHECK', {id: d.recheck}); $('#detail-dialog').close(); toast('Recheck started as a separate report.'); }, b);
   if (d.prefill) action(async () => { const r = await send('PUB_PREFILL', {id: d.prefill}); toast(`${r.filled} fields prepared. ${r.message}`); }, b);
-  if (d.sync) action(async () => { await send('PUB_SYNC_DB', {id: d.sync}); toast('Source refreshed.'); }, b);
+  if (d.sync) action(async () => { await send('PUB_SYNC_DB', {id: d.sync}); toast('Source checked.'); }, b);
   if (d.rename) action(async () => { const db = state.databases.find(x => x.id === d.rename), name = prompt('Source name', db.name); if (name) await send('PUB_RENAME_DB', {id: db.id, name}); }, b);
   if (d.remove) action(async () => { if (confirm('Remove this source from history checks?')) await send('PUB_DELETE_DB', {id: d.remove}); }, b);
   if (d.senderRemove) action(() => send('PUB_SENDER_DELETE', {id: d.senderRemove}), b);
@@ -383,10 +484,10 @@ document.addEventListener('change', e => {
   if (t.id === 'select-page') { for (const r of filtered().slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)) if (t.checked) selected.add(r.id); else selected.delete(r.id); renderResults(); }
   if (t.dataset.contactOverride) updateDetail(() => send('PUB_EMAIL_OVERRIDE', {id: t.dataset.lead, email: t.dataset.contactOverride, value: t.value}), t);
   if (t.id === 'bulk-status' && t.value) { const v = t.value; t.value = ''; action(async () => { const r = await send('PUB_BULK', {ids: [...selected], ...(v === 'dnc' ? {doNotContact: true} : {dealStatus: v})}); toast(r.changed + ' results updated.'); }); }
-  if (t.id === 'sheet-mode') action(async () => { const r = await send('PUB_SHEET_MODE', {mode: t.value}); toast(r.mode === 'auto' ? 'Qualifying results will be sent to the Sheet automatically.' : 'Sheet export is manual: select results and click Send to Sheet.'); });
+  if (t.name === 'sheetMode' && t.checked) action(async () => { const r = await send('PUB_SHEET_MODE', {mode: t.value}); toast(r.mode === 'auto' ? 'Qualifying results will now be sent to your Sheet as they are found.' : 'Sheet sending is manual: select results and click Send to Sheet.'); });
   if (t.id === 'mail-history') action(async () => { await send('PUB_MAIL_TOGGLE', {enabled: t.checked}); toast(t.checked ? 'Sent-mail checks are on for new campaigns.' : 'Sent-mail checks are off.'); });
 });
-const liveFilters = ['search', 'da-min-filter', 'da-max-filter', 'dr-min-filter', 'spam-max-filter', 'age-min-filter', 'traffic-min-filter', 'tld-filter', 'score-min-filter'];
+const liveFilters = ['search', 'tld-filter', 'score-min-filter', ...METRICS.flatMap(([k]) => [k + '-min-filter', k + '-max-filter'])];
 for (const id of [...liveFilters, 'type-filter', 'email-filter', 'availability-filter', 'keyword-filter', 'sort', 'niche-filter', 'language-filter', 'recent-filter', 'hide-missing-filter', 'missing-only-filter', 'reason-filter'])
   $('#' + id).addEventListener(liveFilters.includes(id) ? 'input' : 'change', () => { page = 0; renderTabs(); renderResults(); });
 $('#campaign-filter').onchange = e => { campaign = e.target.value; bucket = 'all'; page = 0; selected.clear(); $('#keyword-filter').value = ''; render(); };
@@ -409,26 +510,21 @@ $('#search-form').onsubmit = e => {
 };
 $('#test-da').onclick = e => action(async () => {
   const f = $('#search-form'), q = f.elements.queries.value.split('\n').map(x => x.trim()).find(Boolean) || (f.elements.niche.value ? f.elements.niche.value + ' "write for us"' : 'write for us');
-  const metrics = [['daMin', 'da'], ['daMax', 'da'], ['drMin', 'dr'], ['spamMax', 'spam'], ['ageMinYears', 'age'], ['trafficMin', 'traffic']].filter(([k]) => f.elements[k].value !== '').map(([, m]) => m);
+  const metrics = [['daMin', 'da'], ['daMax', 'da'], ['drMin', 'dr'], ['drMax', 'dr'], ['spamMin', 'spam'], ['spamMax', 'spam'], ['ageMinYears', 'age'], ['ageMaxYears', 'age'], ['trafficMin', 'traffic'], ['trafficMax', 'traffic']].filter(([k]) => f.elements[k].value !== '').map(([, m]) => m);
   const r = await send('PUB_DA_TEST', {query: q, metrics: C.uniq(metrics)}); $('#da-status').textContent = r.reason; toast(r.reason, !r.ok);
 }, e.currentTarget);
 
-$('#copy-emails').onclick = e => action(async () => {
-  const rows = selectedRows().filter(r => r.bucket === 'ready' && !r.doNotContact), emails = C.uniq(rows.flatMap(R.usableContacts).map(x => x.email));
-  if (!emails.length) throw Error('No ready outreach emails in this view.');
-  await navigator.clipboard.writeText(emails.join('\n')); toast(emails.length + ' emails copied from ready results.');
-}, e.currentTarget);
 $('#export').onclick = () => { const n = selectedRows().length; if (!n) return toast('No results in this view.', true); $('#export-count').textContent = n + ' results from ' + (selected.size ? 'your selection.' : 'the current view.'); $('#export-dialog').showModal(); };
 $('#download-csv').onclick = () => { download('outreach-desk-' + new Date().toISOString().slice(0, 10) + '.csv', PublisherExport.csv(selectedRows(), {allContacts: $('#export-all').checked, mode: $('#export-mode').value, campaigns: state.campaigns}), 'text/csv;charset=utf-8'); $('#export-dialog').close(); toast('CSV downloaded.'); };
 
-$('#connect').onclick = e => action(async () => { await send('PUB_ADD_DB', {links: $('#sheet-links').value}); $('#sheet-links').value = ''; toast('Sheets added. Click Refresh to check them now.'); }, e.currentTarget);
+$('#connect').onclick = e => action(async () => { await send('PUB_ADD_DB', {links: $('#sheet-links').value}); $('#sheet-links').value = ''; toast('Added. Each Sheet is naming and checking itself now.'); }, e.currentTarget);
 $('#import-db').onchange = e => action(async () => {
   const f = e.target.files[0]; if (!f) return; if (f.size > 20 * 1024 * 1024) throw Error('Choose a file smaller than 20 MB.');
   const result = /\.xlsx$/i.test(f.name) ? PublisherSheets.xlsx(new Uint8Array(await f.arrayBuffer())) : PublisherSheets.csv(await f.text());
   if (!result.domains.length) throw Error('No website domains found in this file.');
   await send('PUB_IMPORT_DB', {name: f.name, ...result}); e.target.value = ''; toast(result.domains.length + ' domains imported.');
 });
-$('#output-connect').onclick = e => action(async () => { const r = await send('PUB_OUTPUT_SETTINGS', {endpoint: $('#output-endpoint').value, secret: $('#output-secret').value, useForMail: $('#output-mail').checked}); $('#output-secret').value = ''; toast(r.status, /Error/.test(r.status)); }, e.currentTarget);
+$('#output-connect').onclick = e => action(async () => { const r = await send('PUB_OUTPUT_SETTINGS', {endpoint: $('#output-endpoint').value, secret: $('#output-secret').value, useForMail: false}); $('#output-secret').value = ''; toast(r.status, /Error/.test(r.status)); }, e.currentTarget);
 $('#output-sync').onclick = e => action(async () => { const r = await send('PUB_OUTPUT_SYNC'); toast(r.status, /Error/.test(r.status)); }, e.currentTarget);
 $('#output-disconnect').onclick = e => action(async () => { if (!confirm('Disconnect the Output Sheet? Local results stay.')) return; await send('PUB_OUTPUT_DISCONNECT'); toast('Output Sheet disconnected.'); }, e.currentTarget);
 $('#mail-add').onclick = e => action(async () => { const r = await send('PUB_MAIL_ADD', {endpoint: $('#mail-endpoint').value, secret: $('#mail-secret').value, label: $('#mail-label').value}); for (const id of ['#mail-endpoint', '#mail-secret', '#mail-label']) $(id).value = ''; toast('Connected ' + (r.email || r.label) + '. Sent-mail checks are on.'); }, e.currentTarget);
@@ -450,6 +546,6 @@ $('#detail-dialog').addEventListener('close', () => { openId = ''; });
 $('#detail-dialog').addEventListener('click', e => { if (e.target === $('#detail-dialog')) $('#detail-dialog').close(); });
 
 chrome.storage.onChanged.addListener(changes => { if (Object.keys(changes).some(k => k.startsWith('publisher'))) refresh(); });
-refresh().then(() => { const h = location.hash; if (h === '#new') openCampaign(); else if (h === '#sources') changeView('databases'); if (h) history.replaceState(null, '', location.pathname); });
+refresh().then(() => { const h = location.hash; if (h === '#new') openCampaign(); else if (h === '#connections' || h === '#sources') changeView('connections'); if (h) history.replaceState(null, '', location.pathname); });
 setInterval(refresh, 4000);
 })();

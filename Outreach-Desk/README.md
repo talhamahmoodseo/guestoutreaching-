@@ -1,72 +1,129 @@
-# Outreach Desk 0.7: guest-post research
+# Outreach Desk 0.12.1: guest-post research
 
-A standalone Chrome extension for finding publisher contacts, organizing opportunities by campaign, and checking existing Google Sheets. Separate from Agency Scout. Email sending and negotiation stay with you.
+A standalone Chrome extension for finding publisher contacts, organising opportunities by
+campaign, and checking what you already have. It does research only. It never sends email
+and never submits a form — sending and negotiation stay with you.
 
 ## Install or upgrade
 
-1. Back up the old extension first: **Preferences → Download backup**. Stop any active campaign.
-2. Unzip `Outreach-Desk-v0.7.zip` into a permanent folder.
-3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select **Outreach-Desk/extension** (the folder containing `manifest.json`).
+1. Back up first: **Settings → Download backup**. Stop any running campaign.
+2. Unzip `Outreach-Desk-v0.12.1.zip` into a permanent folder.
+3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select
+   **Outreach-Desk/extension** (the folder containing `manifest.json`).
 4. Open the extension icon → **Open research workspace**.
-5. For an existing unpacked installation, replace the files inside its existing extension directory and click **Reload** to preserve its Chrome identity and local data. A new directory/extension identity starts with separate storage; use **Restore publisher backup** to import your data.
+5. **Upgrading?** Replace the files inside your *existing* extension folder and click **Reload**.
+   That keeps the same Chrome identity and your local data. Loading from a new folder creates a
+   separate extension with separate storage; use **Restore backup** if that happens.
 
-No build step or npm installation is needed. Keep Chrome open while research runs. Data is local to your Chrome profile. Back it up periodically.
+No build step and no npm install are needed to use it. Keep Chrome open while research runs.
+Data is local to your Chrome profile — back it up periodically.
 
-## What's new in 0.7
+> If the dashboard shows a red banner about the engine version, the old background engine is
+> still running. Reload the extension in `chrome://extensions` before reporting anything else.
 
-See `docs/RELEASE-NOTES.md`. In short: new dashboard, 5 websites researched at once, DA/DR/Spam/Age/Traffic from your SEO extension, domain-level history, an Output Sheet that doubles as history, and sent-mail checks across several Gmail accounts. Setup for the Sheet and Gmail accounts: `sheets-apps-script/SETUP.md`.
+## How the product is organised
+
+Four sections, each with one purpose. `docs/PRODUCT-STRUCTURE.md` is the rulebook that decides
+where anything new belongs.
+
+| Section | What it is for |
+| --- | --- |
+| **Results** | Every website the research produced. Status tabs (Ready, Form only, No email, Rejected) are views of one list, so your filters survive switching between them. |
+| **Campaigns** | Create a campaign, watch its progress, read its keyword performance and skip reasons. |
+| **Connections** | Everything outside the extension — see below. |
+| **Settings** | Defaults that apply to every campaign, plus Gemini, sender profiles and backups. |
+
+## Connections: three systems that never mix
+
+The rule is the direction the data travels.
+
+1. **Research sources** — *reads in.* Public Google Sheet links and uploaded CSV/XLSX lists you
+   already own. Checked before a website is opened so you never research the same domain twice.
+   Read-only: the tool never writes here. Paste a Sheet link and it names itself from the
+   workbook, checks itself, refreshes itself when stale and reports its own health — no manual
+   refreshing.
+2. **Email history** — *reads in.* Your Gmail accounts, each running your own Apps Script. Only
+   `{sent, date, to}` comes back; no email content ever leaves Gmail. One contacted address
+   excludes the whole domain.
+3. **Output destination** — *writes out.* The single Sheet results are written to, plus whether
+   that happens **manually** (select rows → Send to Sheet) or **automatically** (qualifying
+   results go as they are found). Rows match on domain + campaign, so re-sending updates a row
+   instead of duplicating it, and your own Status and Notes columns are never overwritten.
+
+If an enabled source genuinely cannot be read, research **stops** rather than treat an
+already-contacted domain as new.
 
 ## Campaign workflow
 
-1. **Databases:** add public, viewable Google Sheet links or import CSV/XLSX. All accessible workbook tabs are indexed. These are read-only sources. Use a separate Sheet for automatic output.
-2. **Preferences:** optionally save sender profiles, a Gemini key, and your own domain blocklist.
-3. **New search:** name the campaign; choose a niche, research language, sender profile, target, and time/page limits.
-4. Select suggested related topics, or leave Related Topics off for the main niche only. Generate and edit keywords. Optional Gemini expands related topics when enabled. Curated queries work without an API key.
-5. Independently enable **Check existing databases** and **Skip already contacted**. If an enabled Sheet fails to refresh, research waits; it does not silently ignore your database.
-6. Optionally choose a DA range and allowed domain extensions. DA is read from MozBar's visible Google result overlay. This requires Google search mode; manually supplied URLs cannot use DA filtering.
-7. Start. The tool follows available Google pagination up to your limit, checks candidate pages and contact pages, and stops at your target or when available results end.
+1. **Connections:** add your sources, mailboxes and output Sheet.
+2. **New campaign:** name it, choose a niche, language, sender profile, target and limits.
+3. Pick related topics or leave them off. Generate and edit keywords. Gemini can expand topics
+   when enabled; curated queries work without any API key.
+4. Set metric filters. **Every metric takes both a lowest and a highest value** — DA, DR, Spam,
+   Domain age and Traffic. A missing metric never rejects a website unless you choose "Skip".
+5. Start. The campaign follows Google's pagination up to your limit, researches five websites at
+   a time, and stops at your target or when the results run out.
 
-Blocked publisher sites are skipped with findings retained. Verification requires you to open the indicated tab and complete it, then Resume. Verification waiting time does not consume the site's research budget. The tool does not bypass challenges.
+While it runs you always see the phase, a progress bar against the target, the funnel
+(found → screened → skipped as known → researched → still queued), the outcome breakdown and
+which websites are open right now. The same numbers appear in the sidebar, the Campaigns page
+and the side panel, because they are calculated once.
 
-## Moz fallback and resume
+## Connection reliability
 
-If Moz metrics cannot be read reliably, choose **Continue without Moz** or **Stop campaign**. Continuing disables DA filtering for that campaign and records the exception beside the originally requested range. Stop preserves the current page, pending queue and search position. Select the stopped campaign and click **Resume campaign** to continue. Complete reports remain available; use a new campaign for new searches.
+Apps Script returns HTTP 404, 429 and 5xx transiently — while a deployment propagates, under
+Google's load, and sometimes for no visible reason. Every call now retries with backoff, and
+only errors that cannot fix themselves (wrong secret, wrong script, authorisation revoked) give
+up early. A connection reports `Connected`, `Reconnecting` or `Error` with the real message, and
+the Connections screen and a running campaign read the same record, so they cannot disagree.
 
-## Campaign reports and quality scores
+## Metrics
 
-The campaign selector switches between an overall view and each campaign's own results, counts, keywords and requirements. The same domain can belong to two campaigns without either overwriting the other's DA decision. Global do-not-contact flags and enabled contacted-history checks still apply.
+DA/DR/Spam/Age/Traffic are read from your SEO extension's badges on Google results, and from its
+on-site toolbar during a recheck. Badges that never loaded during the search are **filled in
+automatically when the campaign finishes** — you no longer have to spot the blank rows and
+recheck them by hand. A recheck you start yourself always takes over the automatic one.
 
-Obvious listicles, directories, platforms, wrong-niche titles and explicit closed contribution routes are screened out. A usable published contact normally goes to **Ready for outreach** unless there is a firm exclusion. Ready does **not** mean guest posting was confirmed: the details and 0–100 evidence score explain the strength of that opportunity. Editorial/submission contacts rank above advertising and general contacts; first-party customer-support addresses are a low-score fallback. Feedback, billing, jobs, legal, automated and clearly third-party contacts remain excluded by default.
+Missing metrics show as red **Missing** with the date, never as a silent blank, and conflicting
+values inside one result are dropped rather than guessed.
 
-Language checks combine page text and declared HTML language. Clear mismatches are rejected for that campaign. Unknown language is retained and shown as Unknown; short, multilingual or incorrectly labeled pages can remain uncertain. Local contribution rules primarily understand English wording; other-language research benefits from Gemini and still needs your spot checks.
+## When a website will not open
 
-Filter by email status, email type, opportunity, niche, score, DA range, TLD(s), language and recently checked date. Search domains, titles and emails. Open a row for evidence, all contacts, sources, notes, history and relationship status. Rechecking a publisher creates a separate report so the original campaign remains unchanged.
+If the browser cannot load a website at all, the address is retried once, then tried as `www.`
+and as plain `http` before the site is given up on — a live website served only on `www.` is no
+longer thrown away. If every address genuinely fails it is rejected with a reason in plain
+English, never with a browser error code.
 
-## Existing/contacted checks
+## Results and exports
 
-Domains and emails are normalized across source tabs. Recognized status columns include Outreach Status, Relationship, Deal Status and Status. Explicit Contacted, Follow-up, Responded, Negotiating, Agreed and Do not contact values populate the contacted index; New and Not contacted do not. Your locally saved contacted relationship states also inform later campaigns. Ambiguous custom statuses should be standardized in your source Sheet.
+Filter by status, email type, opportunity, niche, score, language, TLD, keyword, metric range and
+recency. Open a row for evidence, every contact, sources, notes, history and relationship state.
+Copy a website's main email straight from its row.
 
-Sender profiles are selectable names, addresses and draft text. They **do not authenticate mailboxes or read sent mail**. Contact history comes from your Sheets and recorded relationship statuses. Contact-form preparation is an explicit action and never submits a form automatically.
-
-## Clean exports and output Sheet
-
-CSV defaults to one row per publisher per campaign, with stable columns for campaign, website, niche, language, DA, score, best email/type, other emails, contact form, opportunity, keyword, dates and outreach status. Contact audit mode uses one row per email with source/context. Exports respect the visible filters and selected rows. UTF-8, proper CSV quoting and formula escaping keep cells clean; CSV itself does not store visual formatting.
-
-For a formatted writable database, follow **sheets-apps-script/SETUP.md**. Deploy the included script in a separate Sheet that you own, then save its Web App URL and secret in **Preferences → Automatic output Sheet**. Campaign-scoped records go into Useful/Rejected tabs. Manual outreach status and notes are preserved on updates. Failed output sync keeps local records and queues retries without stopping research. A public view link alone cannot grant write access.
-
-The new Apps Script upgrades recognized v0.5 output headers by appending its additional columns. Back up your workbook before replacing the script. Historical combined rows cannot be retrospectively split into campaigns that were never recorded.
+CSV exports one row per website (or one row per email in audit mode), respecting the visible
+filters and your selection. For a formatted, writable database, deploy the script in
+`sheets-apps-script/SETUP.md` in a Sheet you own and connect it as your output destination.
 
 ## Optional Gemini
 
-Save your own Gemini API key and use **Test Gemini connection**. The model is configurable; the bundled default is `gemini-3.1-flash-lite`. Account eligibility and free quotas depend on Google. Research continues with local scoring on API failure; the campaign report records the fallback.
-
-When enabled, Gemini receives the niche and limited public page evidence plus published email context. It cannot add invented contacts: email classifications are restricted to addresses already extracted, and accepted assessments require literal page evidence. A high-confidence irrelevant finding may reject the site. Gemini can still make mistakes. Its free-tier data terms may permit Google to use requests to improve products; do not enable it for sensitive material. Keys and output secrets stay in separate local storage and are excluded from backups.
+Save your own key and use **Test connection**. Runs once per promising website to confirm the
+niche, classify unclear mailboxes and read the publisher's terms. Every claim must quote the
+page; unquoted claims are discarded. It can never invent a contact, and research continues with
+local scoring if it fails. Free-tier terms may let Google use requests to improve products — do
+not enable it for sensitive material. Keys and script URLs are stored separately and are
+excluded from backups.
 
 ## Validation and limits
 
-0.7 notes: metric filters need your SEO extension (or MozBar) visible on Google. Sent-mail checks need the Apps Script deployed from each Gmail account.
+160 automated tests pass, including a headless render of the real dashboard, regression tests
+proving a transient Apps Script 404 no longer breaks a running campaign, and tests proving an
+unreachable address is retried on `www.`/`http` before a website is rejected. See
+`docs/VALIDATION.md`.
 
+Your own SEO extension, Google session, Gemini key and Apps Script deployment still need testing
+on your machine — Google and Moz layouts, provider quotas and website behaviour all change.
+Published emails are not delivery-verified. This is a testable release, not a promise of
+complete coverage.
 
-See **docs/VALIDATION.md**. Automated tests and synthetic browser fixtures pass. Your actual MozBar installation, Google session, Gemini credentials and Apps Script deployment need testing on your computer. Google/Moz layouts, provider quotas and website behavior can change. Published emails are not delivery-verified. This is a testable release, not a promise of complete coverage or perfect accuracy.
-
-Developer workflow: `npm ci`, `npm test`, `npm run preview:fixtures`, `npm run dev`. Production runtime dependencies are already bundled in `extension/vendor`.
+Developer workflow: `npm ci`, `npm test`, `npm run preview:fixtures`, `npm run dev`.
+Runtime dependencies are already bundled in `extension/vendor`.

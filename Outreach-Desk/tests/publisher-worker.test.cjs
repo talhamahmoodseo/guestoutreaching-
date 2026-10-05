@@ -61,7 +61,7 @@ test('missing metrics follow the campaign option: keep by default, skip when cho
 test('keywords run one Google page at a time; the next search waits for that page\'s websites',async()=>{const q1='a write for us',q2='b write for us',s1='https://www.google.com/search?q='+encodeURIComponent(q1),s2='https://www.google.com/search?q='+encodeURIComponent(q2);const pages={[s1]:{results:[{url:'https://k1a.com/write-for-us',title:'A Write for us'},{url:'https://k1b.com/write-for-us',title:'A Write for us'}],nextURL:''},[s2]:{results:[{url:'https://k2a.com/write-for-us',title:'B Write for us'}],nextURL:''}};for(const u of ['https://k1a.com/write-for-us','https://k1b.com/write-for-us','https://k2a.com/write-for-us'])pages[u]=good(u);const e=env(pages);await e.command({type:'PUB_START',niche:'a',queries:q1+'\n'+q2,target:10,checkDatabase:false,checkContacted:false});await e.done();const n=e.navigation;assert.equal(n[0],s1);assert.ok(n.indexOf(s2)>n.indexOf('https://k1a.com/write-for-us')&&n.indexOf(s2)>n.indexOf('https://k1b.com/write-for-us'));});
 test('a result where one email is in sources but another is new is kept (original rule)',async()=>{const a='https://mixed.com/';const e=env({[a]:{...good(a),emails:[{email:'editor@mixed.com',source:a},{email:'old@mixed.com',source:a}]}});await e.command({type:'PUB_IMPORT_DB',name:'Old list',domains:[],emails:['old@mixed.com'],contactedDomains:[],contactedEmails:[]});await start(e,a,{checkDatabase:true});await e.done();assert.notEqual(e.state().leads[0].bucket,'rejected');});
 test('websites never opened are "Not checked", never "No email"; opened sites without email are "No email"',async()=>{const a='https://opened.com/',b='https://later.com/',c2='https://noemail.com/';const e=env({[a]:good(a),[b]:good(b),[c2]:record(c2,{emails:[]})});await start(e,a+' '+c2+' '+b,{target:1,parallel:1});await e.done();const by=d=>e.state().leads.find(r=>r.domain===d);assert.equal(by('opened.com').bucket,'ready');assert.equal(by('later.com').bucket,'unchecked');assert.match(by('later.com').decisionReason,/Waiting in the research queue/);assert.ok(!by('later.com').attempted);const f=env({[c2]:record(c2,{emails:[]})});await start(f,c2);await f.done();assert.equal(f.state().leads[0].bucket,'no_email');assert.match(f.state().leads[0].decisionReason,/No email found on 1 checked page/);});
-test('a site that was opened but could not be read is rejected with the reason, not "No email" or "Not checked"',async()=>{const a='https://down.com/';const e=env({[a]:{blocked:'unavailable',error:'Page does not allow extraction.'}});await start(e,a);await e.done();const r=e.state().leads[0];assert.equal(r.bucket,'rejected');assert.ok(r.attempted);assert.match(r.decisionReason,/Access incomplete|could not be opened/);});
+test('a site that was opened but could not be read is rejected with the reason, not "No email" or "Not checked"',async()=>{const a='https://down.com/';const e=env({[a]:{blocked:'unavailable',error:'Page does not allow extraction.'}});await start(e,a);await e.done();const r=e.state().leads[0];assert.equal(r.bucket,'rejected');assert.ok(r.attempted);assert.match(r.decisionReason,/could not be (opened|read)/);});
 test('a domain is opened only once per campaign, even when later keywords and pages find it again',async()=>{const q1='a write for us',q2='b write for us',s1='https://www.google.com/search?q='+encodeURIComponent(q1),s2='https://www.google.com/search?q='+encodeURIComponent(q2);const pages={[s1]:{results:[{url:'https://dup.com/write-for-us',title:'A Write for us'},{url:'https://dup.com/contact',title:'A contact'}],nextURL:''},[s2]:{results:[{url:'https://dup.com/guest-post',title:'B Write for us'},{url:'https://www.dup.com/advertise',title:'B advertise'}],nextURL:''}};pages['https://dup.com/write-for-us']=record('https://dup.com/write-for-us',{emails:[]});for(const u of ['https://dup.com/contact','https://dup.com/guest-post','https://www.dup.com/advertise'])pages[u]=record(u,{emails:[]});const e=env(pages);await e.command({type:'PUB_START',niche:'a',queries:q1+'\n'+q2,target:10,pageLimit:1,checkDatabase:false,checkContacted:false});await e.done();const opens=e.navigation.filter(u=>u.includes('dup.com'));assert.ok(!opens.some(u=>/guest-post|advertise/.test(u)),'keyword 2 must not reopen the domain: '+opens.join(', '));assert.equal(e.state().leads.filter(r=>r.domain==='dup.com').length,1);assert.ok(e.campaign().stats.repeats>=1);});
 test('automatic Sheet export sends qualifying results with clean fields only',async()=>{const a='https://auto1.com/',b='https://auto2.com/';const e=env({[a]:good(a),[b]:record(b,{emails:[]})});const posts=[];e.ctx.fetch=async(url,o)=>{const body=JSON.parse(o.body);posts.push(body);return {ok:true,text:async()=>JSON.stringify(body.action==='ping'?{ok:true,message:'pong',accepted:0,sheet:true}:body.action==='history'?{ok:true,tabs:[]}:{ok:true,accepted:(body.records||[]).length})};};await e.command({type:'PUB_OUTPUT_SETTINGS',endpoint:'https://script.google.com/macros/s/out1/exec'});await e.command({type:'PUB_SHEET_MODE',mode:'auto'});await start(e,a+' '+b,{target:2});await e.done();await e.ctx.testing.syncOutput();const rows=posts.filter(p=>p.action==='upsert').flatMap(p=>p.records);assert.deepEqual(rows.map(r=>r.domain),['auto1.com']);assert.ok(!('stableKey' in rows[0])&&!('campaignId' in rows[0]));assert.ok(e.state().leads.find(r=>r.domain==='auto1.com').sheetSentAt);});
 test('metrics recheck marks sites as missing when neither the toolbar nor Google shows values',async()=>{const u='https://none.com/';const e=env({[u]:({method})=>method==='siteMetrics'?{metrics:null,diag:{marker:false,frames:0,open:0,sealed:0}}:good(u)});await start(e,u);await e.done();await e.command({type:'PUB_RECHECK_METRICS',ids:[e.state().leads[0].id]});for(let i=0;i<30&&e.state().metricRun.status==='running';i++)await e.ctx.testing.metricTick();const r=e.state().leads[0];assert.equal(r.metricsStatus,'missing');assert.ok(r.metricsCheckedAt);assert.equal(e.state().metricRun.missing,1);});
@@ -69,3 +69,151 @@ test('metrics recheck marks sites as missing when neither the toolbar nor Google
 test('websites left in the queue when the target is reached can be researched afterwards',async()=>{const q='fashion write for us',search='https://www.google.com/search?q='+encodeURIComponent(q);const res=[{url:'https://q1.com/write-for-us',title:'Fashion Write for us'},{url:'https://q2.com/write-for-us',title:'Fashion Write for us'},{url:'https://q3.com/write-for-us',title:'Fashion Write for us'}];const pages={[search]:{results:res,nextURL:''}};for(const r of res)pages[r.url]=good(r.url);const e=env(pages);await e.command({type:'PUB_START',niche:'fashion',queries:q,target:1,parallel:1,checkDatabase:false,checkContacted:false});await e.done();const c=e.campaign();assert.equal(c.status,'complete');assert.ok(c.pending.length>=1,'sites stay queued, not researched');const queued=e.state().leads.filter(r=>r.bucket==='unchecked');assert.ok(queued.length>=1);assert.ok(queued.every(r=>!r.attempted));const r=await e.command({type:'PUB_RESEARCH_QUEUE',campaignId:c.id});assert.ok(r.queued>=1);await e.done();assert.equal(e.state().leads.filter(x=>x.bucket==='unchecked').length,0);assert.equal(e.campaign().pending.length,0);});
 test('a campaign whose email accounts were re-added still runs by matching the address',async()=>{const a='https://fresh.com/';const e=env({[a]:good(a)});e.ctx.fetch=mailFetch({});await e.command({type:'PUB_MAIL_ADD',endpoint:'https://script.google.com/macros/s/acct1/exec'});await start(e,a,{target:1});assert.equal(e.campaign().checkMail,true);await e.command({type:'PUB_PAUSE'});const before=e.campaign().mailAccountIds[0];const list=(await e.ctx.chrome.storage.local.get('publisherMailAccounts')).publisherMailAccounts;await e.command({type:'PUB_MAIL_REMOVE',id:before});await e.command({type:'PUB_MAIL_ADD',endpoint:'https://script.google.com/macros/s/acct1/exec'});await e.command({type:'PUB_RESUME'});await e.done();assert.equal(e.campaign().status,'complete');assert.equal(e.campaign().stats.ready,1);assert.notEqual(e.campaign().mailAccountIds[0],before,'the campaign follows the new account id');});
 test('a hung Sheet request cannot freeze the rest of the extension',async()=>{const a='https://hang.com/';const e=env({[a]:good(a)});let started=0;e.ctx.fetch=async(url,o)=>{const body=JSON.parse(o.body);if(body.action==='ping')return {ok:true,text:async()=>JSON.stringify({ok:true,message:'pong',accepted:0,sheet:true})};if(body.action==='history')return {ok:true,tabs:[],text:async()=>JSON.stringify({ok:true,tabs:[]})};started++;return new Promise(()=>{});};await e.command({type:'PUB_OUTPUT_SETTINGS',endpoint:'https://script.google.com/macros/s/out1/exec'});await e.command({type:'PUB_SHEET_MODE',mode:'auto'});await start(e,a,{target:1});await e.done();const sync=e.ctx.testing.syncOutput();await new Promise(r=>setTimeout(r,50));assert.equal(started,1,'the send is in flight');const still=await e.command({type:'PUB_GET'});assert.ok(still.campaigns.length,'other commands keep working while it hangs');const renamed=await e.command({type:'PUB_SHEET_MODE',mode:'manual'});assert.equal(renamed.mode,'manual');assert.equal(e.state().settings.sheetMode,'manual');sync.catch(()=>{});});
+
+/* ---------- Connection reliability (0.12) ----------
+   Apps Script returns HTTP 404/429/5xx transiently. Before 0.12 the sent-mail and Sheet
+   history calls had no retry at all, so one hiccup mid-campaign reported a working
+   connection as broken and stopped the run. */
+const flakyFetch = (base, action, fails) => async (url, options) => {
+  const body = JSON.parse(options.body);
+  if (body.action === action && fails.left > 0) { fails.left--; return {ok: false, status: 404, text: async () => ''}; }
+  return base(url, options);
+};
+
+test('a transient Apps Script 404 during the sent-mail check does not break the campaign', async () => {
+  const a = 'https://fresh.com/', e = env({[a]: good(a)});
+  e.ctx.fetch = mailFetch({});
+  await e.command({type: 'PUB_MAIL_ADD', endpoint: 'https://script.google.com/macros/s/acct1/exec'});
+  const fails = {left: 2};
+  e.ctx.fetch = flakyFetch(mailFetch({}), 'sent', fails);
+  await start(e, a);
+  await e.done();
+  assert.equal(fails.left, 0, 'the transient failures were actually exercised');
+  assert.equal(e.campaign().status, 'complete');
+  assert.equal(e.campaign().stats.ready, 1);
+  const account = (await e.ctx.chrome.storage.local.get('publisherMailAccounts')).publisherMailAccounts[0];
+  assert.equal(account.status, 'ready', 'a recovered account is not left looking broken');
+});
+
+test('a transient Apps Script 404 while reading Sheet history does not block the campaign', async () => {
+  const a = 'https://fresh.com/', e = env({[a]: good(a)});
+  const sheet = (url, options) => {
+    const body = JSON.parse(options.body);
+    if (body.action === 'ping') return {ok: true, text: async () => JSON.stringify({ok: true, message: 'pong', account: 'me@gmail.com', sheet: true, gmail: true})};
+    if (body.action === 'history') return {ok: true, text: async () => JSON.stringify({ok: true, tabs: []})};
+    return {ok: true, text: async () => JSON.stringify({ok: true, accepted: 0})};
+  };
+  e.ctx.fetch = async (...a2) => sheet(...a2);
+  await e.command({type: 'PUB_OUTPUT_SETTINGS', endpoint: 'https://script.google.com/macros/s/out1/exec'});
+  const fails = {left: 2};
+  e.ctx.fetch = flakyFetch(async (...a2) => sheet(...a2), 'history', fails);
+  await start(e, a);
+  await e.done();
+  assert.equal(fails.left, 0, 'the transient failures were actually exercised');
+  assert.equal(e.campaign().status, 'complete');
+  assert.equal(e.state().databases.find(d => d.kind === 'output').status, 'ready');
+});
+
+test('a genuinely broken account records the real reason and still pauses the campaign', async () => {
+  const a = 'https://fresh.com/', e = env({[a]: good(a)});
+  e.ctx.fetch = mailFetch({});
+  await e.command({type: 'PUB_MAIL_ADD', endpoint: 'https://script.google.com/macros/s/acct1/exec'});
+  e.ctx.fetch = mailFetch({}, {fail: true});
+  await start(e, a);
+  await e.done();
+  assert.equal(e.campaign().status, 'mail_blocked');
+  const account = (await e.ctx.chrome.storage.local.get('publisherMailAccounts')).publisherMailAccounts[0];
+  assert.equal(account.status, 'error');
+  assert.match(account.error, /Authorization is required/, 'the real reason is kept, not a generic message');
+  assert.ok(account.failures >= 1, 'consecutive failures are counted');
+});
+
+/* ---------- Symmetric metric filters (0.12) ----------
+   Every metric carries both bounds, so no filter is half-built. */
+test('every metric filters on both bounds, not just the minimum', async () => {
+  const q = 'fashion write for us', search = 'https://www.google.com/search?q=' + encodeURIComponent(q);
+  const res = [
+    {url: 'https://inrange.com/write-for-us', title: 'Fashion Write for us', da: 50, dr: 50, spam: 5, age: 120, traffic: 5000},
+    {url: 'https://drtoohigh.com/write-for-us', title: 'Fashion Write for us', da: 50, dr: 95, spam: 5, age: 120, traffic: 5000},
+    {url: 'https://tooold.com/write-for-us', title: 'Fashion Write for us', da: 50, dr: 50, spam: 5, age: 600, traffic: 5000},
+    {url: 'https://toobusy.com/write-for-us', title: 'Fashion Write for us', da: 50, dr: 50, spam: 5, age: 120, traffic: 900000}
+  ];
+  const pages = {[search]: {results: res, nextURL: ''}};
+  for (const r of res) pages[r.url] = good(r.url);
+  const e = env(pages);
+  await e.command({type: 'PUB_START', niche: 'fashion', queries: q, drMax: 80, ageMaxYears: 20, trafficMax: 100000, target: 5});
+  await e.done();
+  assert.deepEqual(e.navigation.filter(u => u !== search), ['https://inrange.com/write-for-us']);
+  assert.match(e.state().leads.find(r => r.domain === 'drtoohigh.com').decisionReason, /DR 95 is above 80/);
+  assert.match(e.state().leads.find(r => r.domain === 'tooold.com').decisionReason, /Domain age .* is above/);
+  assert.match(e.state().leads.find(r => r.domain === 'toobusy.com').decisionReason, /Traffic 900000 is above 100000/);
+});
+
+test('a reversed range is refused for every metric, not just DA', async () => {
+  const e = env();
+  await assert.rejects(e.command({type: 'PUB_START', niche: 'fashion', queries: 'x', daMin: 70, daMax: 30}), /lowest DA must not be higher/);
+  await assert.rejects(e.command({type: 'PUB_START', niche: 'fashion', queries: 'x', trafficMin: 900, trafficMax: 10}), /lowest Traffic must not be higher/);
+});
+
+/* ---------- Automatic metric backfill (0.12) ----------
+   Badges that never render during the search used to leave 15-20 blank rows per 100 sites
+   for the user to spot and recheck by hand. */
+test('a finished campaign fills in metrics that did not load during the search', async () => {
+  const urls = ['https://b1.com/', 'https://b2.com/'];
+  const pages = {};
+  for (const u of urls) pages[u] = ({method}) => method === 'siteMetrics' ? {metrics: {da: 44, dr: 52, spam: 3, age: 90}} : good(u);
+  const e = env(pages);
+  await start(e, urls.join(' '), {target: 2});
+  await e.done();
+  const run = e.state().metricRun;
+  assert.ok(run, 'the campaign queued a backfill by itself');
+  assert.equal(run.automatic, true);
+  assert.equal(run.total, 2);
+  for (let i = 0; i < 40 && e.state().metricRun.status === 'running'; i++) await e.ctx.testing.metricTick();
+  assert.equal(e.state().metricRun.status, 'complete');
+  assert.equal(e.state().leads.find(r => r.domain === 'b1.com').da, 44);
+  assert.equal(e.state().leads.find(r => r.domain === 'b2.com').dr, 52);
+});
+
+test('your own metrics recheck takes over an automatic backfill instead of being refused', async () => {
+  const urls = ['https://t1.com/', 'https://t2.com/'];
+  const pages = {};
+  for (const u of urls) pages[u] = ({method}) => method === 'siteMetrics' ? {metrics: {da: 30, dr: 31}} : good(u);
+  const e = env(pages);
+  await start(e, urls.join(' '), {target: 2});
+  await e.done();
+  assert.equal(e.state().metricRun.automatic, true);
+  const ids = [e.state().leads[0].id];
+  const r = await e.command({type: 'PUB_RECHECK_METRICS', ids, parallel: 1});
+  assert.equal(r.queued, 1);
+  assert.equal(e.state().metricRun.automatic, false, 'the run you asked for replaces the automatic one');
+});
+
+/* ---------- Unreachable addresses (0.12.1) ----------
+   Chrome refuses to inject into its own network-error page and says "Frame with ID 0 is showing
+   error page". That was surfacing verbatim in Rejected, and was often wrong: the website was
+   live, just at a different spelling of its address. */
+const errorPage = () => { throw Error('Frame with ID 0 is showing error page'); };
+
+test('a website that only answers on www is researched instead of rejected as unreachable', async () => {
+  const bare = 'https://site.com/', www = 'https://www.site.com/';
+  const e = env({[bare]: errorPage, [www]: good(www)});
+  await start(e, bare);
+  await e.done();
+  assert.ok(e.navigation.includes(www), 'the www address was tried');
+  const r = e.state().leads[0];
+  assert.equal(r.bucket, 'ready', 'a live website is not thrown away over its address');
+  assert.equal(r.domain, 'site.com');
+});
+
+test('a genuinely dead website is rejected in plain English, never with Chrome internals', async () => {
+  const dead = 'https://dead.com/';
+  const e = env({[dead]: errorPage});
+  await start(e, dead);
+  await e.done();
+  const r = e.state().leads[0];
+  assert.equal(r.bucket, 'rejected');
+  assert.ok(r.attempted);
+  assert.doesNotMatch(r.decisionReason, /Frame with ID|No frame|executeScript|No fixture/, 'no raw browser errors reach the user');
+  assert.match(r.decisionReason, /could not be opened/);
+});

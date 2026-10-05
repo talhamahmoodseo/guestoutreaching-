@@ -1,4 +1,33 @@
-# Validation: Outreach Desk 0.11.0
+# Validation: Outreach Desk 0.12.1
+
+0.12.1: 160 Node tests pass. Two new tests cover unreachable addresses: a website that answers only on `www.` is researched rather than rejected, and a website whose every address fails is rejected with a plain-English reason that is asserted to contain no browser internals.
+
+0.12: 158 Node tests pass. New coverage proves the 0.12 claims rather than restating them:
+
+- **Transient Apps Script failures.** A fake script returns HTTP 404 twice during a campaign's
+  sent-mail check, and again on the Sheet-history read. Both campaigns complete, and the account
+  and source are left `ready` rather than looking broken. Each test asserts the failures were
+  actually exercised, so it cannot pass by never hitting the error path.
+- **A genuinely broken account** still pauses the campaign, keeps the real Apps Script message
+  verbatim and counts the failure.
+- **Symmetric metric bounds.** DR, Domain age and Traffic maxima each reject the site that
+  exceeds them while the in-range site is researched; a reversed range is refused for every
+  metric, not just DA.
+- **Automatic metric backfill.** A finished campaign queues the recheck itself and fills in the
+  missing DA/DR; a recheck the user starts takes over the automatic run instead of being refused.
+- **The dashboard actually renders.** The real `publisher.html` and `publisher-ui.js` are loaded
+  in a headless DOM against the preview fixture: result rows render, all four sections open,
+  Connections shows exactly three groups (Reads in / Reads in / Writes out) with the output Sheet
+  absent from the research sources list, every metric has both bounds in both places, the
+  progress card draws its bar, funnel and outcome chips, and Copy emails is gone while each row
+  can copy its own email. This is the class of breakage the pure-logic suite never caught.
+
+Not verified on this machine: the real-browser harness (`tests/e2e-chromium.py`) could not be run
+here because launching Chromium is blocked in the build environment. It is unchanged and should
+be run on the owner's machine. Real RankSEO badges, a real Apps Script deployment, real Gmail
+results and a real Gemini key remain untested outside fixtures, as in every previous release.
+
+
 
 0.11: 145 Node tests pass, including a regression test proving a hung Sheet request no longer blocks other commands. Real-Chromium run with an Apps Script that fails twice on purpose: the campaign rode through it and completed; the queue count showed 4 waiting; clicking "Research 4 waiting" drained the queue to 0 with every waiting website researched (7 ready, 3 rejected, no unchecked left); no "Not checked" tab; auto and manual Sheet export both sent clean rows.
 

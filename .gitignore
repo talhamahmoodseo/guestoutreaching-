@@ -1,0 +1,5 @@
+node_modules/
+index.html
+tests/*-preview.html
+tests/panel-frame.html
+*.zip

@@ -9,6 +9,26 @@
   const NEGATIVE_TTL = 14 * 86400000;
   const BATCH = 10;
 
+  /* ---------- One retry policy for every Apps Script call ----------
+     Apps Script returns HTTP 404, 429 and 5xx transiently: while a deployment
+     propagates, under Google's own load, and sometimes for no visible reason.
+     Treating the first failure as "disconnected" is what made campaigns stop
+     mid-run and report a working connection as broken. Everything retries with
+     backoff; only errors that cannot fix themselves skip the retries. */
+  const PERMANENT = /Wrong secret|not the Outreach Desk|sign-in page|unreadable answer|Paste the Apps Script|Use the deployed Apps Script|Secret must be|Authorization is required|no valid domain|between 1 and 100|different number/i;
+  const permanent = e => PERMANENT.test((e && e.message) || '');
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const settings = x => (typeof x === 'function' ? {fetcher: x} : x) || {};
+  // `wait` is injected by the worker so its tests advance a fake clock instead of really sleeping.
+  async function attempt(run, {tries = 4, base = 1200, cap = 15000, wait = pause} = {}) {
+    let last;
+    for (let n = 0; n < tries; n++) {
+      if (n) await wait(Math.min(cap, base * 2 ** (n - 1)));
+      try { return await run(n); } catch (e) { last = e; if (permanent(e)) break; }
+    }
+    throw last;
+  }
+
   function endpoint(value) {
     let parsed;
     try { parsed = new URL(C.clean(value)); } catch (_) { throw new Error('Paste the Apps Script web app URL that ends in /exec.'); }
@@ -25,9 +45,9 @@
   }
 
   // POST text/plain JSON (no CORS preflight). Apps Script answers through a redirect.
-  async function call(config, action, payload = {}, timeoutMs = 30000, fetcher) {
+  async function call(config, action, payload = {}, timeoutMs = 30000, o) {
     const url = endpoint(config.endpoint), key = secret(config.secret);
-    const request = fetcher || g.fetch;
+    const request = settings(o).fetcher || g.fetch;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response, text;
@@ -52,14 +72,15 @@
     return body;
   }
 
-  async function ping(config, fetcher) {
-    const body = await call(config, 'ping', {records: []}, 25000, fetcher);
+  // Single attempt on purpose: callers wrap this in attempt() so there is only ever one retry layer.
+  async function ping(config, o) {
+    const body = await call(config, 'ping', {records: []}, 25000, o);
     if (body.message !== 'pong') throw new Error('This URL is not the Outreach Desk script. Paste the latest Code.gs and redeploy.');
     return {account: C.clean(body.account).toLowerCase().slice(0, 254), sheet: !!body.sheet, gmail: body.gmail !== false, version: Number(body.version) || 1};
   }
 
-  async function history(config, fetcher) {
-    const body = await call(config, 'history', {}, 45000, fetcher);
+  async function history(config, o) {
+    const body = await attempt(() => call(config, 'history', {}, 45000, o), settings(o));
     if (!Array.isArray(body.tabs)) throw new Error('Output Sheet history was not returned. Paste the latest Code.gs and redeploy.');
     return PublisherSheets.scriptTabs(body.tabs);
   }
@@ -79,7 +100,7 @@
   /* Checks domains (company level) and free-provider emails (exact) against the
      sent mail of every selected account. Returns hits keyed by domain/email.
      Throws with blockedAccount when any selected account cannot be checked. */
-  async function check(accounts, {domains = [], emails = []}, fetcher) {
+  async function check(accounts, {domains = [], emails = []}, o) {
     const wantDomains = C.uniq(domains.map(C.domain)), wantEmails = C.uniq(emails.map(e => String(e || '').toLowerCase()));
     const hits = {domains: {}, emails: {}};
     if (!accounts.length || (!wantDomains.length && !wantEmails.length)) return hits;
@@ -93,7 +114,7 @@
         if (!partD.length && !partE.length) continue;
         let body;
         try {
-          body = await call(account, 'sent', {domains: partD, emails: partE}, 60000, fetcher);
+          body = await attempt(() => call(account, 'sent', {domains: partD, emails: partE}, 60000, o), settings(o));
         } catch (e) {
           if (changed) await saveCache(cache);
           const error = new Error((account.label || account.email || 'Email account') + ' could not be checked: ' + e.message);
@@ -121,5 +142,5 @@
     return 'Emailed' + (hit.to ? ' ' + hit.to : '') + ' from ' + hit.account + (when ? ' on ' + when : '');
   }
 
-  g.PublisherMail = {endpoint, secret, call, ping, history, check, describe, CACHE_KEY};
+  g.PublisherMail = {endpoint, secret, call, ping, history, check, describe, attempt, permanent, CACHE_KEY};
 })(globalThis);

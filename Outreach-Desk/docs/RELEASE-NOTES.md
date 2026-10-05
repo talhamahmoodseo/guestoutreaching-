@@ -1,3 +1,111 @@
+# Outreach Desk 0.12.1
+
+After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.
+
+## "Access incomplete: Frame with ID 0 is showing error page"
+
+That line in the Rejected tab was Chrome's own wording, passed straight through. It means the
+browser never loaded the page at all, so the extension had nothing to read. Two problems with it:
+
+- **It was often wrong.** A website that only answers on `www.` (or only over plain `http`) failed
+  on the first spelling of its address and was rejected as unreachable, even though it was live.
+- **It was unreadable.** "Frame with ID 0" is browser plumbing, not something you can act on.
+
+Now an address that fails is retried once for a blip, then tried as `www.` and as plain `http`
+before the website is given up on. Those sites are researched normally instead of being thrown
+away. If every address genuinely fails, the reason is written in words: *"The website could not be
+opened: nothing loaded in the browser. The address may no longer exist, or the server refused the
+connection."* Raw browser errors no longer reach the results at all, and a test asserts it.
+
+Other technical messages from the same path ("Page does not allow extraction", timeouts, a closed
+research tab) are now plain English too.
+
+# Outreach Desk 0.12.0
+
+After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.
+
+0.12 is a structure release. The research engine is deliberately unchanged: it still searches,
+screens, opens websites and finds emails exactly as it did. What changed is the product around
+it, which had grown feature by feature without a plan. `docs/PRODUCT-STRUCTURE.md` now decides
+where anything belongs, and everything below follows from it.
+
+## The connection bug that made the tool feel unreliable
+
+A campaign could report "Email check failed" or a disconnected Sheet minutes after both had
+worked. Two causes, both fixed:
+
+- **The calls made during a campaign had no retry at all.** Only the settings-panel health check
+  retried. The sent-mail lookup and the Sheet history read gave up on the first failure, so a
+  single transient Apps Script hiccup stopped the run.
+- **HTTP 404 was treated as permanent** and skipped the retries that did exist — and 404 is
+  exactly what Apps Script returns transiently while a deployment propagates.
+
+Now every Apps Script call shares one retry policy with backoff, and only errors that cannot fix
+themselves (wrong secret, wrong script, authorisation revoked) give up early. Regression tests
+cover both paths.
+
+## One health model for every connection
+
+Research sources, mailboxes and the output Sheet all carry the same record: status, when it last
+worked, the real error message and a consecutive-failure count. `Reconnecting` now exists for a
+connection that failed once but is still retrying, so a blip no longer reads as "broken". The
+Connections screen and a running campaign read the same record and cannot disagree.
+
+## Connections split into three systems
+
+The old "Sources & history" mixed a destination, read-only lists and a Gmail toggle in one place.
+It is now three groups on one page, separated by the direction data travels:
+
+- **Research sources** (reads in) — public Sheets and uploaded files. The output Sheet no longer
+  appears in this list; it is a destination, and its history role is stated as a property of it.
+- **Email history** (reads in) — your Gmail accounts. Using the output Sheet's Google account for
+  sent-mail checks is now an explicit offer here, not a checkbox hidden in the output panel.
+- **Output destination** (writes out) — the Sheet, plus a clear manual/automatic choice.
+
+## Google Sheet sources manage themselves
+
+Paste a link and the source names itself from the workbook, checks itself straight away,
+refreshes when it goes stale and reports its own health. A name you set yourself is never
+overwritten. No manual refreshing.
+
+## Complete, symmetric metric filters
+
+Every metric now takes both a lowest and a highest value — DA, DR, Spam, Domain age and Traffic —
+in the campaign dialog and in the results filters, with matching validation and campaign-report
+wording. No more DA having two ends while DR had one.
+
+## Metrics fill themselves in
+
+Badges that never rendered during the search used to leave roughly 15–20 blank rows per 100
+websites for you to notice and recheck by hand. A finished campaign now backfills them
+automatically using the same recheck engine. A recheck you start yourself takes over the
+automatic one instead of being refused. Badge polling during the search also waits longer before
+concluding the SEO extension has finished.
+
+## Campaign progress instead of a black box
+
+A running campaign always shows its phase (checking sources, searching Google, researching), a
+progress bar against the target, the funnel — found, screened out, skipped as already known,
+researched, still queued — the outcome breakdown, and which websites are open right now. The
+sidebar, the Campaigns page and the side panel all use the same calculation, so the numbers
+cannot drift apart.
+
+## Dashboard actions and design
+
+**Copy emails** is gone: a bulk clipboard dump is not an outreach workflow, and your sender takes
+its list from the CSV or the Sheet. Each row can copy its own main email instead. The toolbar
+keeps Export CSV; the selection bar keeps Send to Sheet, Recheck metrics, Set status and Delete.
+
+The stylesheet was consolidated — the old "polish pass" of overrides appended to the end is gone,
+folded into the rules themselves, on one spacing scale, with the side panel on the same tokens.
+
+## Testing
+
+158 automated tests, up from 145. New: a headless render of the real dashboard (four sections,
+the three connection groups, the progress card, both metric bounds), transient-404 regressions for
+both the sent-mail and Sheet-history paths, symmetric metric-bound filtering, and the automatic
+metric backfill.
+
 # Outreach Desk 0.11.0
 
 After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.

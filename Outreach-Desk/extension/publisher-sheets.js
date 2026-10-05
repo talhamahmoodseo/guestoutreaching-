@@ -78,7 +78,16 @@ function csv(text){
  const valuesByRow={};rows.forEach((values,index)=>{valuesByRow[index+1]=Object.fromEntries(values.map((value,col)=>[col,value]));});
  const summary=summarizeRows(valuesByRow);return {...summary,tabs:[{name:'CSV',rows:rows.length,domains:summary.domains.length}]};
 }
-async function fetchSheet(link,fetcher=fetch){const meta=C.sheetLink(link),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);try{const res=await fetcher(meta.exportURL,{credentials:'omit',signal:controller.signal,cache:'no-store'});if(!res.ok)throw Error(`Google returned ${res.status}. Check Anyone with the link → Viewer and that downloads are allowed.`);if(Number(res.headers.get('content-length'))>20*1024*1024)throw Error('Workbook exceeds 20 MB.');const reader=res.body?.getReader();let bytes;if(reader){const chunks=[];let size=0;while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>20*1024*1024){await reader.cancel();throw Error('Workbook exceeds 20 MB.');}chunks.push(value);}bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}}else bytes=new Uint8Array(await res.arrayBuffer());if(bytes[0]!==80||bytes[1]!==75)throw Error('Google did not return a workbook. Make the sheet viewable to anyone with its link and allow downloads, or upload an XLSX/CSV copy.');return {...meta,...xlsx(bytes)};}catch(e){if(e.name==='AbortError')throw Error('Sheet download timed out. Refresh to retry.');throw e;}finally{clearTimeout(timer);}}
+// Google names the export after the workbook, so the source can label itself instead of
+// showing a raw sheet id until someone renames it by hand.
+function exportTitle(res){
+ const header=String(res.headers?.get?.('content-disposition')||'');
+ const raw=(/filename\*=UTF-8''([^;]+)/i.exec(header)||/filename="([^"]+)"/i.exec(header)||[])[1]||'';
+ if(!raw)return '';
+ let name=raw;try{name=decodeURIComponent(raw);}catch{}
+ return C.clean(name.replace(/\.(xlsx|csv)$/i,'')).slice(0,100);
+}
+async function fetchSheet(link,fetcher=fetch){const meta=C.sheetLink(link),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);try{const res=await fetcher(meta.exportURL,{credentials:'omit',signal:controller.signal,cache:'no-store'});if(!res.ok)throw Error(`Google returned ${res.status}. Check Anyone with the link → Viewer and that downloads are allowed.`);const title=exportTitle(res);if(Number(res.headers.get('content-length'))>20*1024*1024)throw Error('Workbook exceeds 20 MB.');const reader=res.body?.getReader();let bytes;if(reader){const chunks=[];let size=0;while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>20*1024*1024){await reader.cancel();throw Error('Workbook exceeds 20 MB.');}chunks.push(value);}bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}}else bytes=new Uint8Array(await res.arrayBuffer());if(bytes[0]!==80||bytes[1]!==75)throw Error('Google did not return a workbook. Make the sheet viewable to anyone with its link and allow downloads, or upload an XLSX/CSV copy.');return {...meta,title,...xlsx(bytes)};}catch(e){if(e.name==='AbortError')throw Error('Sheet download timed out. Refresh to retry.');throw e;}finally{clearTimeout(timer);}}
 // Output-Sheet history returned by the Apps Script: status-driven tabs plus plain history tabs.
 function scriptTabs(input){
  const tabs=Array.isArray(input)?input.slice(0,50):[];const all={domains:new Set(),emails:new Set(),contactedDomains:new Set(),contactedEmails:new Set()},meta=[];
@@ -89,5 +98,5 @@ function scriptTabs(input){
   meta.push({name:C.clean(tab.name).slice(0,100)||'Sheet',rows:grid.length,domains:summary.domains.length,history});}
  return {tabs:meta,domains:[...all.domains],emails:[...all.emails],contactedDomains:[...all.contactedDomains],contactedEmails:[...all.contactedEmails]};
 }
-g.PublisherSheets={xlsx,csv,fetchSheet,scriptTabs,isContacted};
+g.PublisherSheets={xlsx,csv,fetchSheet,scriptTabs,isContacted,exportTitle};
 })(globalThis);

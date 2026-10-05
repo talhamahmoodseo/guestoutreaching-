@@ -8,7 +8,7 @@ const C=PublisherCore,R=PublisherRules,M=PublisherModel,KEY='publisherDesk',LEAD
 let chain=Promise.resolve(),timer,cache=null;const written=new Map();
 const id=()=>crypto.randomUUID(),now=()=>new Date().toISOString(),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const MAX_PARALLEL=8,DEFAULT_PARALLEL=5,ENGINE=chrome.runtime.getManifest?.().version||'dev';
-const defaults=()=>({version:3,senderProfiles:[],databases:[],leads:[],campaigns:[],output:{status:'Not connected',pendingIds:[],lastSyncedAt:'',error:'',endpoint:''},settings:{excludePlatforms:true,researchUnclear:false,parallel:DEFAULT_PARALLEL,mailHistory:false,geminiModel:'gemini-3.1-flash-lite',blocklist:['forbes.com','wikipedia.org','medium.com','reddit.com','facebook.com','linkedin.com','youtube.com','quora.com'],sender:{name:'',email:'',company:'',website:'',subject:'Guest contribution enquiry',message:''}},activeId:null});
+const defaults=()=>({version:3,senderProfiles:[],databases:[],leads:[],campaigns:[],output:{status:'new',pendingIds:[],lastSyncedAt:'',lastOkAt:'',error:'',failures:0,endpoint:''},settings:{excludePlatforms:true,researchUnclear:false,parallel:DEFAULT_PARALLEL,mailHistory:false,geminiModel:'gemini-3.1-flash-lite',blocklist:['forbes.com','wikipedia.org','medium.com','reddit.com','facebook.com','linkedin.com','youtube.com','quora.com'],sender:{name:'',email:'',company:'',website:'',subject:'Guest contribution enquiry',message:''}},activeId:null});
 
 /* ---------- Storage: campaigns/settings in one key, leads split per campaign ---------- */
 async function read(){
@@ -17,11 +17,11 @@ async function read(){
  const s=M.migrate(meta?structuredClone(meta):defaults());
  const keys=Array.isArray(s.leadKeys)?s.leadKeys:[];delete s.leadKeys;
  if(keys.length){const stored=await chrome.storage.local.get(keys);for(const k of keys){const rows=stored[k];if(Array.isArray(rows)){s.leads.push(...rows);written.set(k,JSON.stringify(rows));}}}
- s.output ||= {status:'Not connected',pendingIds:[],lastSyncedAt:'',error:'',endpoint:''};s.output.pendingIds=(s.output.pendingIds||[]).filter(pid=>s.leads.some(r=>r.id===pid&&r.sheetSentAt));if(s.output.status==='Pending'&&!s.output.pendingIds.length)s.output.status=s.output.error?'Error':'Connected';s.settings.parallel ||= DEFAULT_PARALLEL;
+ s.output ||= {status:'new',pendingIds:[],lastSyncedAt:'',lastOkAt:'',error:'',failures:0,endpoint:''};s.output.pendingIds=(s.output.pendingIds||[]).filter(pid=>s.leads.some(r=>r.id===pid&&r.sheetSentAt));s.settings.parallel ||= DEFAULT_PARALLEL;
  for(const c of s.campaigns)upgradeCampaign(c);
  for(const r of s.leads)if(r.bucket==='no_email'&&!r.visitedURLs?.length)M.recompute(r);
  s.settings.sheetMode ||= 'manual';
- if(!(await outputConfig())?.endpoint&&s.output.endpoint){s.output.endpoint='';s.output.status='Not connected';s.output.error='The Apps Script URL is not saved in this Chrome profile. Paste it again in Sources & history.';}
+ if(!(await outputConfig())?.endpoint&&s.output.endpoint){s.output.endpoint='';healthReset(s.output);s.output.error='The Apps Script URL is not saved in this Chrome profile. Paste it again in Sources & history.';}
  cache=s;return s;
 }
 async function save(s){
@@ -38,26 +38,26 @@ async function accounts(){return ((await chrome.storage.local.get(ACCOUNTS))[ACC
 function upgradeCampaign(c){c.opened ||= C.uniq([...(c.jobs||[]).map(j=>j.domain),...(c.pending||[]).map(p=>p.domain)]);if(c.current&&!c.jobs){c.jobs=[c.current];}delete c.current;c.jobs ||= [];c.tabPool ||= [];if(c.researchTabId&&!c.jobs.some(j=>j.tabId)){if(c.jobs[0])c.jobs[0].tabId=c.researchTabId;}delete c.researchTabId;}
 
 // Only results you sent to the Sheet are kept in sync (for example after a metrics recheck).
-function queueAuto(s,r){if(s.settings.sheetMode!=='auto'||!s.output?.endpoint||r.sheetSentAt)return;if(!s.output.pendingIds.includes(r.id))s.output.pendingIds.push(r.id);s.output.status='Pending';wakeSheet();}
+function queueAuto(s,r){if(s.settings.sheetMode!=='auto'||!s.output?.endpoint||r.sheetSentAt)return;if(!s.output.pendingIds.includes(r.id))s.output.pendingIds.push(r.id);wakeSheet();}
 let sheetTimer;const wakeSheet=(ms=6000)=>{clearTimeout(sheetTimer);sheetTimer=setTimeout(()=>syncOutput().catch(console.error),ms);};
-function queueOutput(s,id){const lead=s.leads.find(r=>r.id===id);if(!lead?.sheetSentAt)return;if(!s.output?.pendingIds.includes(id))s.output.pendingIds.push(id);if(s.output?.endpoint)s.output.status='Pending';}
+function queueOutput(s,id){const lead=s.leads.find(r=>r.id===id);if(!lead?.sheetSentAt)return;if(!s.output?.pendingIds.includes(id))s.output.pendingIds.push(id);}
 let syncing=false;
 async function syncOutput(force=false){
- if(syncing)return {status:'Pending',pending:0};
+ if(syncing)return {status:'checking',pending:0};
  const s=await read(),o=s.output;
  if(!o.pendingIds.length)return {status:o.status,pending:0};
  const config=await outputConfig();
- if(!config?.endpoint)return {status:'Not connected',pending:o.pendingIds.length};
- if(!force&&o.lastAttemptAt&&Date.now()-Date.parse(o.lastAttemptAt)<120000&&o.status==='Error')return {status:o.status,pending:o.pendingIds.length};
+ if(!config?.endpoint)return {status:'new',pending:o.pendingIds.length};
+ if(!force&&o.lastAttemptAt&&Date.now()-Date.parse(o.lastAttemptAt)<120000&&o.status==='error')return {status:o.status,pending:o.pendingIds.length};
  const ids=o.pendingIds.slice(0,40),records=ids.map(id=>s.leads.find(r=>r.id===id)).filter(Boolean);
  o.lastAttemptAt=now();await save(s);
  syncing=true;let error='';
  // The network call runs outside the queue so nothing else waits on it.
  try{if(records.length)await sendRows(config,records.map(PublisherOutput.record));}catch(e){error=e.message;}finally{syncing=false;}
  return serial(async()=>{const s2=await read(),o2=s2.output;
-  if(error){o2.status='Error';o2.error=error;}
+  if(error){healthFail(o2,error);}
   else{for(const r of s2.leads)if(ids.includes(r.id))r.sheetSentAt ||= now();
-   o2.pendingIds=o2.pendingIds.filter(id=>!ids.includes(id));o2.status=o2.pendingIds.length?'Pending':'Connected';o2.lastSyncedAt=now();o2.error='';if(o2.pendingIds.length)wakeSheet(3000);}
+   o2.pendingIds=o2.pendingIds.filter(id=>!ids.includes(id));healthOk(o2);o2.lastSyncedAt=now();if(o2.pendingIds.length)wakeSheet(3000);}
   await save(s2);return {status:o2.status,pending:o2.pendingIds.length,error:o2.error};},'sheetApply');
 }
 const serial=(fn,label='op')=>{const p=chain.then(()=>{let t;return Promise.race([Promise.resolve().then(fn),new Promise((_,reject)=>{t=setTimeout(()=>reject(Error(label+' took too long and was stopped. Nothing else was blocked.')),90000);})]).finally(()=>clearTimeout(t));});chain=p.catch(()=>{cache=null;});return p;};
@@ -66,30 +66,77 @@ const active=s=>s.campaigns.find(c=>c.id===s.activeId);
 function log(c,message){c.message=message;c.events=[{at:now(),message},...(c.events||[])].slice(0,100);}
 async function closeTabs(ids){for(const tabId of C.uniq(ids||[]))try{await chrome.tabs.remove?.(tabId);}catch{}}
 function flushJob(s,c,j){const at=s.leads.findIndex(r=>r.id===j.record.id);const keep=['notes','dealStatus','doNotContact','reviewDecision','selectedEmail'];if(at>=0)s.leads[at]={...j.record,...Object.fromEntries(keep.map(k=>[k,s.leads[at][k]]))};}
-function finish(s,c,reason){for(const j of c.jobs||[])flushJob(s,c,j);const tabs=[...(c.tabPool||[]),...(c.jobs||[]).map(j=>j.tabId)].filter(Boolean);c.jobs=[];c.tabPool=[];closeTabs(tabs);c.status='complete';c.completedAt=now();log(c,reason);}
+/* Some SEO badges never render while the search page is open, so a run of 100 websites used
+   to end with 15-20 of them blank and the user had to notice, select them and recheck by
+   hand. A finished campaign now fills those in by itself, using the same recheck engine. */
+const METRIC_BACKFILL_LIMIT=60;
+const metricsIncomplete=r=>!Number.isFinite(r.da)||!Number.isFinite(r.dr);
+function queueMetricBackfill(s,c){
+ if(c.metricBackfillAt||s.metricRun?.status==='running')return;
+ const rows=s.leads.filter(r=>c.researchedIds.includes(r.id)&&['ready','form'].includes(r.bucket)&&r.metricsStatus!=='missing'&&metricsIncomplete(r)).slice(0,METRIC_BACKFILL_LIMIT);
+ if(!rows.length)return;
+ c.metricBackfillAt=now();
+ s.metricRun={status:'running',queue:rows.map(r=>r.id),total:rows.length,done:0,updated:0,missing:0,parallel:Math.min(5,c.parallel||5),tabs:[],startedAt:now(),automatic:true};
+ log(c,'Filling in metrics for '+rows.length+' website'+(rows.length>1?'s':'')+' whose badges did not load during the search.');
+ wakeMetrics(1500);
+}
+function finish(s,c,reason){for(const j of c.jobs||[])flushJob(s,c,j);const tabs=[...(c.tabPool||[]),...(c.jobs||[]).map(j=>j.tabId)].filter(Boolean);c.jobs=[];c.tabPool=[];closeTabs(tabs);c.status='complete';c.completedAt=now();log(c,reason);queueMetricBackfill(s,c);}
 function jobSummary(j){return {domain:j.domain,url:j.pages[0]||j.visited[j.visited.length-1]||'',pagesRead:j.visited.length,parked:!!j.parked};}
 function publicState(s){return {...s,metricRun:s.metricRun?(({tabs,queue,...r})=>({...r,left:queue.length}))(s.metricRun):null,databases:s.databases.map(({domains,emails,contactedDomains,contactedEmails,...d})=>({...d,count:domains?.length||0,emailCount:emails?.length||0,contactedCount:contactedDomains?.length||0})),campaigns:s.campaigns.map(({seen,pending,jobs,tabPool,serpSnapshot,...c})=>({...c,queued:pending?.length||0,jobs:(jobs||[]).map(jobSummary),current:jobs?.[0]?jobSummary(jobs[0]):null}))};}
 const within=(promise,ms,label)=>{let t;return Promise.race([promise,new Promise((_,reject)=>{t=setTimeout(()=>reject(Error(label)),ms);})]).finally(()=>clearTimeout(t));};
 async function groupTab(c,tabId){if(!chrome.tabs.group)return;try{if(c.groupId!=null){try{await chrome.tabs.group({groupId:c.groupId,tabIds:[tabId]});return;}catch{c.groupId=null;}}c.groupId=await chrome.tabs.group({tabIds:[tabId]});await chrome.tabGroups?.update(c.groupId,{title:'Outreach Desk',collapsed:true,color:'blue'});}catch{}}
 async function navigate(target,kind,url,c){let tab;try{if(target[kind])tab=await chrome.tabs.get(target[kind]);}catch{}if(tab)tab=await chrome.tabs.update(tab.id,{url,active:false});else {tab=await chrome.tabs.create({url,active:false});target[kind]=tab.id;if(c)await groupTab(c,tab.id);}const start=Date.now();while(Date.now()-start<11000){await sleep(450);try{tab=await chrome.tabs.get(tab.id);}catch{throw Error('Research tab was closed.');}if(tab.status==='complete')break;}await sleep(900);return tab.id;}
 async function collect(tabId,method,data){await within(chrome.scripting.executeScript({target:{tabId},files:['vendor/publisher-deps.js','publisher-core.js','publisher-rules.js','publisher-da.js','publisher-collector.js']}),5000,'Page does not allow extraction.');const results=await within(chrome.scripting.executeScript({target:{tabId},func:(name,arg)=>globalThis.PublisherCollector[name](arg),args:[method,data||{}]}),5000,'Page extraction timed out.');if(!results[0]?.result)throw Error('Page returned no readable content.');return results[0].result;}
+/* ---------- Connection health ----------
+   Research sources, email accounts and the Output Sheet all carry this one shape, so a
+   running campaign and the Connections screen read the same record and cannot disagree.
+   new = never checked, checking = in progress, ready = working, degraded = failed once but
+   still retrying, error = retries exhausted and `error` says exactly why. */
+const HEALTH_LABEL={new:'Not connected',checking:'Checking',ready:'Connected',degraded:'Reconnecting',error:'Error'};
+const healthLabel=t=>HEALTH_LABEL[t&&t.status]||'Not connected';
+function healthReset(t){t.status='new';t.error='';t.failures=0;return t;}
+function healthOk(t,extra){t.status='ready';t.lastOkAt=now();t.error='';t.failures=0;if(extra)Object.assign(t,extra);return t;}
+function healthFail(t,message){t.failures=(t.failures||0)+1;t.error=String(message||'').slice(0,400);t.lastFailAt=now();t.status='error';return t;}
 async function outputConfig(){return (await chrome.storage.local.get('publisherOutputConfig')).publisherOutputConfig||null;}
 // Transient network or Apps Script hiccups must not look like "not connected".
-async function reachable(config,label){let last;
- for(let attempt=0;attempt<3;attempt++){if(attempt)await sleep(attempt*4000);
-  try{return await PublisherMail.ping(config);}catch(e){last=e;if(/Wrong secret|not the Outreach Desk|sign-in page|unreadable answer|deployed|HTTP 4/i.test(e.message))break;}}
- throw Error(label+': '+last.message);}
+// One retry policy for every call lives in PublisherMail.attempt; HTTP 404/429/5xx are
+// retried (Apps Script returns them transiently), only self-inflicted errors give up early.
+const RETRY={tries:4,wait:sleep};
+async function reachable(config,label){
+ try{return await PublisherMail.attempt(()=>PublisherMail.ping(config),RETRY);}
+ catch(e){throw Error(label+': '+e.message);}}
 // Verifies the Output Sheet the same way the settings panel does and writes the answer back, so the two can never disagree.
 async function verifyOutput(s){const config=await outputConfig();
- if(!config?.endpoint){s.output.status='Not connected';s.output.endpoint='';return {ok:false,error:'The Output Sheet is not connected in this Chrome profile. Add its Apps Script URL in Sources & history.'};}
- try{const info=await reachable(config,'Output Sheet');s.output.status='Connected';s.output.account=info.account;s.output.error='';return {ok:true,config};}
- catch(e){s.output.status='Error';s.output.error=e.message;return {ok:false,error:e.message};}}
+ if(!config?.endpoint){healthReset(s.output);s.output.endpoint='';return {ok:false,error:'The Output Sheet is not connected in this Chrome profile. Add its Apps Script URL in Sources & history.'};}
+ try{const info=await reachable(config,'Output Sheet');healthOk(s.output,{account:info.account});return {ok:true,config};}
+ catch(e){healthFail(s.output,e.message);return {ok:false,error:e.message};}}
 // Sending rows retries transient failures too, so one hiccup never looks like a broken connection.
-async function sendRows(config,records){let last;
- for(let attempt=0;attempt<3;attempt++){if(attempt)await sleep(attempt*4000);
-  try{return await PublisherOutput.send(config,'upsert',records);}catch(e){last=e;if(/Wrong secret|not the Outreach Desk|sign-in page|deployed|no valid domain|between 1 and 100|different number/i.test(e.message))break;}}
- throw last;}
-async function syncOne(db){db.status='syncing';try{let result;if(db.kind==='output'){const config=await outputConfig();if(!config?.endpoint)throw Error('Output Sheet is not connected.');result=await PublisherMail.history(config);}else result=await PublisherSheets.fetchSheet(db.url);Object.assign(db,result,{status:'ready',lastSyncedAt:now(),error:''});}catch(e){db.status='error';db.error=e.message;throw e;}}
+const sendRows=(config,records)=>PublisherMail.attempt(()=>PublisherOutput.send(config,'upsert',records),RETRY);
+/* ---------- Research sources: self-managing ----------
+   A pasted Sheet link should behave like a connected database, not a URL you have to
+   remember to refresh. It names itself from the workbook, refreshes itself when stale and
+   reports its own health. The network call runs off the command queue so a slow Google
+   response never delays anything else. */
+const SOURCE_TTL=6*3600*1000;
+let sourceTimer,refreshing=false;
+const wakeSources=(ms=4000)=>{clearTimeout(sourceTimer);sourceTimer=setTimeout(()=>refreshStale().catch(console.error),ms);};
+const sourceStale=d=>(d.kind==='sheet'||d.kind==='output')&&d.status!=='checking'&&(!d.lastSyncedAt||Date.now()-Date.parse(d.lastSyncedAt)>SOURCE_TTL);
+async function fetchSource(db){if(db.kind==='output'){const config=await outputConfig();if(!config?.endpoint)throw Error('Output Sheet is not connected.');return PublisherMail.history(config,RETRY);}return PublisherSheets.fetchSheet(db.url);}
+function applySource(db,result){Object.assign(db,result);if(!db.renamed&&result.title)db.name=C.clean(result.title).slice(0,100)||db.name;return healthOk(db,{lastSyncedAt:now()});}
+async function syncOne(db){db.status='checking';try{applySource(db,await fetchSource(db));}catch(e){healthFail(db,e.message);throw e;}}
+async function refreshStale(){
+ if(refreshing)return;
+ const s=await read();if(active(s)?.status==='running')return;
+ const db=s.databases.find(sourceStale);if(!db)return;
+ refreshing=true;let result=null,error='';
+ try{result=await fetchSource(db);}catch(e){error=e.message;}finally{refreshing=false;}
+ let more=false;
+ await serial(async()=>{const s2=await read(),d2=s2.databases.find(x=>x.id===db.id);if(!d2)return;
+  if(error)healthFail(d2,error);else applySource(d2,result);
+  more=s2.databases.some(sourceStale);await save(s2);},'sourceRefresh');
+ if(more)wakeSources(2500);
+}
+
 function contactedStatus(value){return /^(contacted|follow-up|responded|negotiating|agreed|do not contact)$/i.test(C.clean(value));}
 
 /* ---------- Contact history (domain level) ---------- */
@@ -152,7 +199,7 @@ const limited=(c,j)=>!j.pages.length||j.visited.length>=c.pageLimit||j.elapsed>=
 async function finalize(s,c,j){const r=j.record,wasCandidate=j.finalize.candidate;
  if(!r.hardReject){
   if(c.checkMail&&!j.mailDone){const list=await selectedAccounts(c),emails=r.emails.map(e=>e.email),domains=C.uniq(emails.map(C.companyDomain).filter(d=>d&&d!==j.domain)),free=emails.filter(e=>!C.companyDomain(e));
-   try{const hits=await PublisherMail.check(list,{domains,emails:free});const found=[...domains.flatMap(d=>hits.domains[d]||[]),...free.flatMap(e=>hits.emails[e]||[])];if(found.length){r.mailHistory=found;r.hardReject={code:'mail_history',reason:mailReason(found)};c.stats.mailHistory=(c.stats.mailHistory||0)+1;}j.mailDone=true;}
+   try{const hits=await PublisherMail.check(list,{domains,emails:free},RETRY);const found=[...domains.flatMap(d=>hits.domains[d]||[]),...free.flatMap(e=>hits.emails[e]||[])];if(found.length){r.mailHistory=found;r.hardReject={code:'mail_history',reason:mailReason(found)};c.stats.mailHistory=(c.stats.mailHistory||0)+1;}j.mailDone=true;}
    catch(e){return {blocked:e.message};}}
   if(!r.hardReject){await aiReview(s,c,r,j);if(!r.hardReject&&R.usableContacts(r).length)await mxCheck(r);}
  }
@@ -162,18 +209,51 @@ async function finalize(s,c,j){const r=j.record,wasCandidate=j.finalize.candidat
  if(!limited(c,j))return {};
  return {done:j.elapsed>=c.budget*1000?'Research time limit reached; partial findings saved.':'Relevant page or time limit reached; all findings saved.'};
 }
+/* Chrome refuses to inject into its own network-error page and reports it as
+   "Frame with ID 0 is showing error page" - accurate, meaningless to the user, and frequently
+   true only for one spelling of the address. A live website served at www. (or over plain http)
+   was being rejected as unreachable. So: retry once for a blip, then try the obvious alternate
+   addresses, and only then report it in words a person can act on. */
+const ERROR_PAGE=/showing error page|No frame with id|Frame with ID|Cannot access contents/i;
+const BLOCK_REASON={unavailable:'The website could not be opened: it returned an error page or blocked the request.',login:'The website could not be opened: it asks for a sign-in before showing its pages.'};
+function addressVariants(url){
+ let u;try{u=new URL(url);}catch{return [];}
+ if(u.protocol!=='https:')return [];
+ const swap=h=>{const v=new URL(u);v.hostname=h;return v.href;},plain=new URL(u);plain.protocol='http:';
+ return [u.hostname.startsWith('www.')?swap(u.hostname.slice(4)):swap('www.'+u.hostname),plain.href];
+}
+function unreachable(message){
+ if(ERROR_PAGE.test(message))return 'The website could not be opened: nothing loaded in the browser. The address may no longer exist, or the server refused the connection.';
+ if(/took too long|timed out|timeout/i.test(message))return 'The website could not be opened: it took too long to respond.';
+ if(/tab was closed/i.test(message))return 'The website could not be opened: its research tab was closed.';
+ if(/does not allow extraction|returned no readable content/i.test(message))return 'The website could not be read: it returned no readable content.';
+ return message;
+}
+// One bad spelling of an address must not reject a website that is actually live.
+async function openPage(j,next,c){
+ let last;
+ try{let tabId;if(j.resumeInPlace&&j.tabId){try{const tab=await chrome.tabs.get(j.tabId);if(C.domain(tab.url)===j.domain)tabId=tab.id;}catch{}}j.resumeInPlace=false;if(!tabId)tabId=await navigate(j,'tabId',next,c);return await collect(tabId,'scan');}
+ catch(e){last=e;j.resumeInPlace=false;}
+ if(!ERROR_PAGE.test(last.message)||j.triedAddresses)return {blocked:'unavailable',error:unreachable(last.message)};
+ j.triedAddresses=true;const first=last;
+ for(const url of [next,...addressVariants(next)]){
+  try{return await collect(await navigate(j,'tabId',url,c),'scan');}catch(e){last=e;}
+ }
+ // Report what the real address did, not whatever the last alternate spelling happened to say.
+ return {blocked:'unavailable',error:unreachable(first.message)};
+}
 async function jobStep(s,c,j){
  if(j.finalize)return finalize(s,c,j);
  while(j.pages.length&&j.visited.includes(j.pages[0]))j.pages.shift();
  if(limited(c,j)){j.finalize={candidate:candidate(c,j.record)};return finalize(s,c,j);}
  const next=j.pages[0],started=Date.now();j.record.attempted=true;let data;
- try{let tabId;if(j.resumeInPlace&&j.tabId){try{const tab=await chrome.tabs.get(j.tabId);if(C.domain(tab.url)===j.domain)tabId=tab.id;}catch{}}j.resumeInPlace=false;if(!tabId)tabId=await navigate(j,'tabId',next,c);data=await collect(tabId,'scan');}catch(e){data={blocked:'unavailable',error:e.message};}
+ data=await openPage(j,next,c);
  j.elapsed+=Date.now()-started;
  // Many challenges (Cloudflare "Just a moment") clear by themselves. Wait and re-read before giving up.
- for(let attempt=0;data.blocked==='verification'&&attempt<3;attempt++){await sleep(3000);try{data=await collect(j.tabId,'scan');}catch(e){data={blocked:'unavailable',error:e.message};}}
+ for(let attempt=0;data.blocked==='verification'&&attempt<3;attempt++){await sleep(3000);try{data=await collect(j.tabId,'scan');}catch(e){data={blocked:'unavailable',error:unreachable(e.message)};}}
  if(data.blocked==='verification'){if(c.onVerification==='pause'){j.parked=true;return {parked:true};}j.pages.shift();j.visited.push(next);j.record.hardReject={code:'verification',reason:'Verification / CAPTCHA could not be completed'};c.stats.verificationSkipped=(c.stats.verificationSkipped||0)+1;return {done:'Verification / CAPTCHA could not be completed; skipped.'};}
  j.pages.shift();j.visited.push(next);
- if(data.blocked){j.record.incompleteReason='Access incomplete: '+(data.error||data.blocked);return {done:'Website unavailable: '+(data.error||'access restricted')};}
+ if(data.blocked){const why=data.error?unreachable(data.error):(BLOCK_REASON[data.blocked]||'The website could not be read.');j.record.incompleteReason=why;return {done:why};}
  if(C.domain(data.url)!==j.domain){j.record.incompleteReason='Redirected to a different domain; contact attribution needs review';return {done:'Redirected to a different website; review required.'};}
  const r=M.mergePage(j.record,data,c);const home=new URL(data.url).pathname.replace(/\/+$/,'')==='';if(home){const pageGate=R.screen({url:data.url,title:data.pageEvidence?.title},{niche:c.niche,relatedTopics:c.relatedTopics,subtopics:c.subtopics,excludePlatforms:true});if(pageGate.code==='wrong_niche')r.hardReject={code:pageGate.code,reason:pageGate.reason};}
  const language=PublisherLanguage.detect(data.pageEvidence||{});if(language.confidence>=(r.languageConfidence||0)){r.language=language.code;r.languageConfidence=language.confidence;r.languageSource=language.source;}if(PublisherLanguage.mismatch(language,c.researchLanguage)){r.hardReject={code:'language',reason:'Website language '+language.code+' does not meet campaign language '+c.researchLanguage};c.stats.languageRejected++;}
@@ -192,16 +272,17 @@ function slotTarget(s,c){const qualified=M.tally(s,c);return Math.max(1,Math.min
 /* Sent-mail check for queued domains, before any tab is opened. */
 async function mailPrecheck(s,c){const todo=c.pending.filter(p=>!p.mailChecked).slice(0,20);if(!todo.length)return true;const list=await selectedAccounts(c);
  if(!list.length){const all=await accounts();c.status='mail_blocked';log(c,all.length?'This campaign was set up with email accounts that are no longer connected. Connected now: '+all.map(a=>a.email||a.label).join(', ')+'. Reconnect them, or turn email history off for this campaign, then Resume.':'Email history is on for this campaign, but no email account is connected. Add one in Sources & history, or turn email history off, then Resume.');return false;}
- for(const a of list){try{const info=await reachable(a,a.email||a.label);a.status='Connected';a.email=info.account||a.email;a.error='';}catch(e){a.status='Error';a.error=e.message;await chrome.storage.local.set({[ACCOUNTS]:(await accounts()).map(x=>x.id===a.id?a:x)});c.status='mail_blocked';log(c,e.message+' Paused so old contacts are not treated as new. Fix the account in Sources & history, then Resume.');return false;}}
+ for(const a of list){try{const info=await reachable(a,a.email||a.label);healthOk(a,{email:info.account||a.email});}catch(e){healthFail(a,e.message);await chrome.storage.local.set({[ACCOUNTS]:(await accounts()).map(x=>x.id===a.id?a:x)});c.status='mail_blocked';log(c,e.message+' Paused so old contacts are not treated as new. Fix the account in Sources & history, then Resume.');return false;}}
  await chrome.storage.local.set({[ACCOUNTS]:(await accounts()).map(x=>list.find(a=>a.id===x.id)||x)});
- let hits;try{hits=await PublisherMail.check(list,{domains:todo.map(p=>p.domain)});}catch(e){c.status='mail_blocked';log(c,e.message+' Paused so old contacts are not treated as new. Fix the account and Resume.');return false;}
+ let hits;try{hits=await PublisherMail.check(list,{domains:todo.map(p=>p.domain)},RETRY);}catch(e){c.status='mail_blocked';log(c,e.message+' Paused so old contacts are not treated as new. Fix the account and Resume.');return false;}
  for(const p of todo){const found=hits.domains[p.domain]||[];p.mailChecked=true;if(!found.length)continue;
   c.pending=c.pending.filter(x=>x!==p);c.stats.contacted++;c.stats.mailHistory=(c.stats.mailHistory||0)+1;const reason=mailReason(found);c.skips.unshift({domain:p.domain,query:p.query,url:p.url,title:p.title,reason,at:now()});
   const lead=s.leads.find(l=>l.id===p.leadId);if(lead){lead.mailHistory=found;lead.hardReject={code:'mail_history',reason};lead.bucket='rejected';lead.score=0;lead.decisionReason=reason;lead.collectedAt=now();lead.rejectionScope='universal';queueOutput(s,lead.id);c.researchedIds=C.uniq([...c.researchedIds,lead.id]);}}
  return true;}
 const METRIC_KEYS=['da','pa','dr','spam','age','traffic'];
-function metricSettings(c){return {requireDA:c.requireDA&&!c.manual,daMin:c.daMin,daMax:c.daMax,drMin:c.drMin,spamMax:c.spamMax,ageMinMonths:c.ageMinMonths,trafficMin:c.trafficMin,missingMetric:c.missingMetric};}
-function neededMetrics(c){const k=[];if(c.daMin!=null&&c.daMin>0||c.daMax!=null&&c.daMax<100)k.push('da');if(c.drMin!=null)k.push('dr');if(c.spamMax!=null)k.push('spam');if(c.ageMinMonths!=null)k.push('age');if(c.trafficMin!=null)k.push('traffic');return k.length?k:['da'];}
+function metricSettings(c){return {requireDA:c.requireDA&&!c.manual,daMin:c.daMin,daMax:c.daMax,drMin:c.drMin,drMax:c.drMax,spamMin:c.spamMin,spamMax:c.spamMax,ageMinMonths:c.ageMinMonths,ageMaxMonths:c.ageMaxMonths,trafficMin:c.trafficMin,trafficMax:c.trafficMax,missingMetric:c.missingMetric};}
+const METRIC_BOUNDS=[['da','daMin','daMax','DA'],['dr','drMin','drMax','DR'],['spam','spamMin','spamMax','Spam Score'],['age','ageMinMonths','ageMaxMonths','Domain age'],['traffic','trafficMin','trafficMax','Traffic']];
+function neededMetrics(c){const k=METRIC_BOUNDS.filter(([,lo,hi])=>c[lo]!=null||c[hi]!=null).map(([key])=>key);return k.length?k:['da'];}
 function addResults(s,c,results){
  const {contacted,known}=historyIndex(s,c),seen=new Set(c.seen),opened=new Set(c.opened||[]);
  for(const raw of results){const u=C.url(raw.url),d=C.domain(u);if(!d)continue;const query=c.queries[c.queryIndex]||'Manual URLs';const q=c.queryStats[query] ||= {pages:0,links:0,rejected:0,queued:0,ready:0};q.links++;c.stats.links++;
@@ -234,7 +315,7 @@ async function searchStep(s,c){
  if(data.blocked){c.status=data.blocked==='verification'?'verification':'paused';c.verificationKind='search';log(c,'Google needs attention. Open the search tab, complete any verification, then Resume.');return;}
  if(data.empty){c.status='paused';log(c,'No organic results could be read. Review the search tab for consent, an empty result page, or a layout change. Resume retries; Skip moves to the next query.');return;}
  // SEO extensions fill their badges in after the page loads. Re-read until the count stops growing.
- if(!c.serpSnapshot&&!c.daBypass){let seen=PublisherDA.metricCount(data.results),stable=0;const polls=c.requireDA?8:3;for(let attempt=0;attempt<polls&&seen<data.results.length&&stable<2;attempt++){await sleep(1500);try{const later=await collect(c.searchTabId,'search');if(later.results?.length){const n=PublisherDA.metricCount(later.results);if(n>seen){data=later;seen=n;stable=0;}else stable++;}}catch{break;}}}
+ if(!c.serpSnapshot&&!c.daBypass){let seen=PublisherDA.metricCount(data.results),stable=0;const polls=c.requireDA?12:6;for(let attempt=0;attempt<polls&&seen<data.results.length&&stable<3;attempt++){await sleep(1500);try{const later=await collect(c.searchTabId,'search');if(later.results?.length){const n=PublisherDA.metricCount(later.results);if(n>seen){data=later;seen=n;stable=0;}else stable++;}}catch{break;}}}
  if(c.requireDA){const need=neededMetrics(c),check=PublisherDA.preflight(data.results,need);
   if(!check.ok&&!c.stats.searchPages&&!c.daBypass){c.status='da_blocked';c.serpSnapshot=data;log(c,'No SEO metrics are visible on Google. Continue without metric filters (you can recheck metrics later) or stop. Your place is saved.');return;}
   if(!check.ok)log(c,'No metrics visible on this Google page; results are kept with unknown metrics.');
@@ -304,27 +385,27 @@ async function metricTick(){const s=await read(),run=s.metricRun;if(!run||run.st
 function editable(s){const c=active(s);if(c&&['running','verification','database_blocked','da_blocked','mail_blocked','paused'].includes(c.status))throw Error('Finish or stop the active campaign before changing databases.');}
 async function command(m){const s=await read(),c=m.campaignId?s.campaigns.find(x=>x.id===m.campaignId):active(s);switch(m.type){
  case 'PUB_GET':return {...publicState(s),engine:ENGINE,hasKey:!!(await chrome.storage.local.get('publisherGeminiKey')).publisherGeminiKey,mailAccounts:(await accounts()).map(({endpoint,secret,...a})=>({...a,endpointHint:'…'+endpoint.slice(-10),hasSecret:!!secret}))};
- case 'PUB_ADD_DB':{editable(s);const links=C.uniq(String(m.links||'').split(/\s+/).filter(Boolean));if(!links.length||links.length>15)throw Error('Add between 1 and 15 Sheets links at a time.');const parsed=links.map(C.sheetLink);for(const p of parsed)if(!s.databases.some(d=>d.sheetId===p.sheetId))s.databases.push({id:id(),kind:'sheet',...p,name:'Google Sheet '+p.sheetId.slice(0,8),status:'new',domains:[],tabs:[]});await save(s);return true;}
+ case 'PUB_ADD_DB':{editable(s);const links=C.uniq(String(m.links||'').split(/\s+/).filter(Boolean));if(!links.length||links.length>15)throw Error('Add between 1 and 15 Sheets links at a time.');const parsed=links.map(C.sheetLink);for(const p of parsed)if(!s.databases.some(d=>d.sheetId===p.sheetId))s.databases.push({id:id(),kind:'sheet',...p,name:'Google Sheet '+p.sheetId.slice(0,8),status:'new',domains:[],tabs:[]});await save(s);wakeSources(100);return true;}
  case 'PUB_SYNC_DB':{editable(s);const db=s.databases.find(d=>d.id===m.id);if(!db||db.kind!=='sheet')throw Error('Sheet not found.');try{await syncOne(db);}finally{await save(s);}return true;}
- case 'PUB_RENAME_DB':{editable(s);const db=s.databases.find(d=>d.id===m.id);if(db)db.name=C.clean(m.name).slice(0,100)||db.name;await save(s);return true;}
+ case 'PUB_RENAME_DB':{editable(s);const db=s.databases.find(d=>d.id===m.id);if(db){db.name=C.clean(m.name).slice(0,100)||db.name;db.renamed=true;}await save(s);return true;}
  case 'PUB_DELETE_DB':editable(s);s.databases=s.databases.filter(d=>d.id!==m.id);await save(s);return true;
  case 'PUB_IMPORT_DB':{editable(s);if(!Array.isArray(m.domains)||m.domains.length>500000)throw Error('Invalid database size.');const domains=C.uniq(m.domains.map(C.domain));s.databases.push({id:id(),kind:'file',name:C.clean(m.name).slice(0,120),status:'ready',domains,emails:C.uniq((m.emails||[]).flatMap(v=>C.emails(v))),contactedDomains:C.uniq((m.contactedDomains||[]).map(C.domain)),contactedEmails:C.uniq((m.contactedEmails||[]).flatMap(v=>C.emails(v))),tabs:m.tabs||[],lastSyncedAt:now()});await save(s);return domains.length;}
- case 'PUB_OUTPUT_SETTINGS':{const old=(await chrome.storage.local.get('publisherOutputConfig')).publisherOutputConfig||{},endpoint=PublisherMail.endpoint(m.endpoint),config=PublisherOutput.validateConfig({endpoint,secret:typeof m.secret==='string'&&m.secret.trim()?m.secret:(old.endpoint===endpoint?old.secret:'')});await chrome.storage.local.set({publisherOutputConfig:config});s.output.endpoint=config.endpoint;s.output.status='Checking';s.output.error='';await save(s);
-  let info=null;try{info=await reachable(config,'Output Sheet');if(!info.sheet)throw Error('This script is not inside a Sheet. Open your output Sheet, choose Extensions > Apps Script, paste the code there and deploy it.');s.output.status='Connected';s.output.account=info.account;s.output.lastSyncedAt=now();}catch(e){s.output.status='Error';s.output.error=e.message;}
-  if(s.output.status==='Connected'){let db=s.databases.find(d=>d.kind==='output');if(!db){db={id:'output-sheet',kind:'output',name:'Output Sheet history',status:'new',domains:[],emails:[],contactedDomains:[],contactedEmails:[],tabs:[]};s.databases.unshift(db);}try{await syncOne(db);}catch{}
-   if(m.useForMail&&info?.gmail){const list=await accounts();if(!list.some(a=>a.endpoint===config.endpoint)){list.push({id:id(),label:info.account||'Output Sheet account',email:info.account,endpoint:config.endpoint,secret:config.secret||'',status:'Connected',checkedAt:now()});await chrome.storage.local.set({[ACCOUNTS]:list});}}}
-  await save(s);return {status:s.output.status+(s.output.error?': '+s.output.error:'')};}
- case 'PUB_OUTPUT_SYNC':{const result=await syncOutput(true);return {status:result.status+(result.error?': '+result.error:'')+', '+result.pending+' waiting'};}
+ case 'PUB_OUTPUT_SETTINGS':{const old=(await chrome.storage.local.get('publisherOutputConfig')).publisherOutputConfig||{},endpoint=PublisherMail.endpoint(m.endpoint),config=PublisherOutput.validateConfig({endpoint,secret:typeof m.secret==='string'&&m.secret.trim()?m.secret:(old.endpoint===endpoint?old.secret:'')});await chrome.storage.local.set({publisherOutputConfig:config});s.output.endpoint=config.endpoint;s.output.status='checking';s.output.error='';await save(s);
+  let info=null;try{info=await reachable(config,'Output Sheet');if(!info.sheet)throw Error('This script is not inside a Sheet. Open your output Sheet, choose Extensions > Apps Script, paste the code there and deploy it.');healthOk(s.output,{account:info.account,lastSyncedAt:now()});}catch(e){healthFail(s.output,e.message);}
+  if(s.output.status==='ready'){let db=s.databases.find(d=>d.kind==='output');if(!db){db={id:'output-sheet',kind:'output',name:'Output Sheet history',status:'new',domains:[],emails:[],contactedDomains:[],contactedEmails:[],tabs:[]};s.databases.unshift(db);}try{await syncOne(db);}catch{}
+   if(m.useForMail&&info?.gmail){const list=await accounts();if(!list.some(a=>a.endpoint===config.endpoint)){list.push({id:id(),label:info.account||'Output Sheet account',email:info.account,endpoint:config.endpoint,secret:config.secret||'',status:'ready',lastOkAt:now(),failures:0,checkedAt:now()});await chrome.storage.local.set({[ACCOUNTS]:list});}}}
+  await save(s);return {status:healthLabel(s.output)+(s.output.error?': '+s.output.error:'')};}
+ case 'PUB_OUTPUT_SYNC':{const result=await syncOutput(true);return {status:(HEALTH_LABEL[result.status]||result.status)+(result.error?': '+result.error:'')+', '+result.pending+' waiting'};}
  case 'PUB_TOPICS':return PublisherTopics.suggest(m.niche);
  case 'PUB_AI_TEST':{const config=await aiConfig(s);if(m.key)config.key=String(m.key).trim();if(m.model)config.model=C.clean(m.model);if(!config.key)throw Error('Save a Gemini API key first.');return PublisherAI.test(config);}
- case 'PUB_OUTPUT_DISCONNECT':await chrome.storage.local.remove('publisherOutputConfig');s.databases=s.databases.filter(d=>d.kind!=='output');s.output.endpoint='';s.output.status='Not connected';s.output.error='';await save(s);return true;
+ case 'PUB_OUTPUT_DISCONNECT':await chrome.storage.local.remove('publisherOutputConfig');s.databases=s.databases.filter(d=>d.kind!=='output');s.output.endpoint='';healthReset(s.output);await save(s);return true;
  case 'PUB_DA_CONTINUE':if(!c||c.status!=='da_blocked')throw Error('This campaign is not waiting for a Moz choice.');c.requireDA=false;c.daBypass=true;c.daBypassedAt=now();c.status='running';s.activeId=c.id;log(c,'Continuing without metric filters. The requested criteria stay in the campaign report.');await save(s);wake(100);return true;
  case 'PUB_DA_TEST':{const query=C.clean(m.query).slice(0,280);if(!query)throw Error('Enter a niche or query to test MozBar.');const tab=await chrome.tabs.create({url:'https://www.google.com/search?q='+encodeURIComponent(query),active:true});let result={ok:false,reason:'SEO metrics were not visible on this Google page.'};try{for(let attempt=0;attempt<3;attempt++){await sleep(2200);try{const data=await collect(tab.id,'search');if(data.blocked){result={ok:false,reason:'Google needs attention: '+data.blocked};break;}result=PublisherDA.preflight(data.results||[],Array.isArray(m.metrics)&&m.metrics.length?m.metrics:['da']);if(result.ok)break;}catch(e){result={ok:false,reason:e.message};}}}finally{if(result.ok)try{await chrome.tabs.remove(tab.id);}catch{}}return result;}
 
  case 'PUB_QUERIES':{const chosen=String(m.subtopics||'').split(/[\n,]/).map(x=>x.trim()).filter(Boolean),base=PublisherTopics.queries(m.niche,!!m.relatedTopics,chosen);if(!m.ai||!m.relatedTopics)return {queries:base,source:'Curated templates'};try{const config=await aiConfig(s);if(!config.key)throw Error('No Gemini key saved');const result=await PublisherAI.topics(config,m.niche);const terms=C.uniq([...chosen,...result.topics]).slice(0,7);return {queries:PublisherTopics.queries(m.niche,true,terms),topics:terms,source:'Gemini topic suggestions'};}catch(e){return {queries:base,source:'Curated templates — '+e.message};}}
- case 'PUB_START':{const num=v=>v===undefined||v===null||String(v).trim()===''?null:Number(v);if(['running','verification','da_blocked','mail_blocked'].includes(active(s)?.status))throw Error('Pause or stop the active campaign first.');const qs=C.uniq(String(m.queries||'').split('\n').map(C.clean).filter(q=>q.length&&q.length<300)).slice(0,60);const urls=C.uniq(String(m.urls||'').split(/\s+/).map(x=>C.url(x)).filter(u=>C.domain(u))).slice(0,1000);if(!C.clean(m.niche)||(!qs.length&&!urls.length))throw Error('Enter a niche and search queries or website URLs.');const sender=s.senderProfiles.find(p=>p.id===m.senderId),n={id:id(),name:C.clean(m.campaignName).slice(0,100)||C.clean(m.niche).slice(0,80)+' Outreach',senderId:sender?.id||'',sender:sender?structuredClone(sender):structuredClone(s.settings.sender||{}),researchLanguage:PublisherLanguage.supported.includes(m.researchLanguage)?m.researchLanguage:'any',checkDatabase:m.checkDatabase!==false,checkContacted:m.checkContacted!==false,useGemini:!!m.useGemini,requestedDA:!!m.requireDA,aiCalls:0,recheckId:m.recheckId||null,subtopics:C.clean(m.subtopics).slice(0,500),relatedTopics:!!m.relatedTopics,tlds:(Array.isArray(m.tlds)?m.tlds:[]).map(x=>String(x).toLowerCase().replace(/^\.+/,'')).filter(x=>/^[a-z]{2,20}(?:\.[a-z]{2,20})?$/.test(x)).slice(0,20),requireDA:false,daMin:num(m.daMin),daMax:num(m.daMax),drMin:num(m.drMin),spamMax:num(m.spamMax),ageMinMonths:num(m.ageMinYears)==null?null:Math.round(num(m.ageMinYears)*12),trafficMin:num(m.trafficMin),missingMetric:m.missingMetric==='skip'?'skip':'keep',onVerification:m.onVerification==='pause'?'pause':'skip',parallel:Math.min(MAX_PARALLEL,Math.max(1,Number(m.parallel)||s.settings.parallel||DEFAULT_PARALLEL)),mailAccountIds:[],checkMail:false,jobs:[],tabPool:[],opened:[],mailAccountLabels:[],contactGoal:['email','form','any'].includes(m.contactGoal)?m.contactGoal:'email',researchedIds:[],attempts:{},niche:C.clean(m.niche).slice(0,90),queries:urls.length?['Manual URLs']:qs,manual:!!urls.length,target:Math.min(5000,Math.max(1,Number(m.target)||50)),includeForms:!!m.includeForms,maxPages:Math.min(20,Math.max(1,Number(m.maxPages)||20)),budget:Math.min(180,Math.max(30,Number(m.budget)||75)),pageLimit:Math.min(10,Math.max(2,Number(m.pageLimit)||6)),status:'running',phase:'sync',syncIndex:0,queryIndex:0,pageNumber:1,searchURL:'',searchLoaded:false,visitedSearch:[],seen:[],pending:[],queryStats:{},skips:[],events:[],createdAt:now(),stats:M.stats()};
- const anyMetric=['daMin','daMax','drMin','spamMax','ageMinMonths','trafficMin'].some(k=>n[k]!=null);n.requireDA=(!!m.requireDA||anyMetric)&&!urls.length;n.requestedDA=n.requireDA;
- for(const k of ['daMin','daMax','drMin','spamMax'])if(n[k]!=null&&(n[k]<0||n[k]>100))throw Error('DA, DR and Spam Score must be between 0 and 100.');if(n.daMin!=null&&n.daMax!=null&&n.daMin>n.daMax)throw Error('Minimum DA must be lower than maximum DA.');if((m.requireDA||anyMetric)&&urls.length)throw Error('Metric filters work on Google results. Remove the website list or clear the metric filters.');
+ case 'PUB_START':{const num=v=>v===undefined||v===null||String(v).trim()===''?null:Number(v);const months=v=>{const n=num(v);return n==null?null:Math.round(n*12);};if(['running','verification','da_blocked','mail_blocked'].includes(active(s)?.status))throw Error('Pause or stop the active campaign first.');const qs=C.uniq(String(m.queries||'').split('\n').map(C.clean).filter(q=>q.length&&q.length<300)).slice(0,60);const urls=C.uniq(String(m.urls||'').split(/\s+/).map(x=>C.url(x)).filter(u=>C.domain(u))).slice(0,1000);if(!C.clean(m.niche)||(!qs.length&&!urls.length))throw Error('Enter a niche and search queries or website URLs.');const sender=s.senderProfiles.find(p=>p.id===m.senderId),n={id:id(),name:C.clean(m.campaignName).slice(0,100)||C.clean(m.niche).slice(0,80)+' Outreach',senderId:sender?.id||'',sender:sender?structuredClone(sender):structuredClone(s.settings.sender||{}),researchLanguage:PublisherLanguage.supported.includes(m.researchLanguage)?m.researchLanguage:'any',checkDatabase:m.checkDatabase!==false,checkContacted:m.checkContacted!==false,useGemini:!!m.useGemini,requestedDA:!!m.requireDA,aiCalls:0,recheckId:m.recheckId||null,subtopics:C.clean(m.subtopics).slice(0,500),relatedTopics:!!m.relatedTopics,tlds:(Array.isArray(m.tlds)?m.tlds:[]).map(x=>String(x).toLowerCase().replace(/^\.+/,'')).filter(x=>/^[a-z]{2,20}(?:\.[a-z]{2,20})?$/.test(x)).slice(0,20),requireDA:false,daMin:num(m.daMin),daMax:num(m.daMax),drMin:num(m.drMin),drMax:num(m.drMax),spamMin:num(m.spamMin),spamMax:num(m.spamMax),ageMinMonths:months(m.ageMinYears),ageMaxMonths:months(m.ageMaxYears),trafficMin:num(m.trafficMin),trafficMax:num(m.trafficMax),missingMetric:m.missingMetric==='skip'?'skip':'keep',onVerification:m.onVerification==='pause'?'pause':'skip',parallel:Math.min(MAX_PARALLEL,Math.max(1,Number(m.parallel)||s.settings.parallel||DEFAULT_PARALLEL)),mailAccountIds:[],checkMail:false,jobs:[],tabPool:[],opened:[],mailAccountLabels:[],contactGoal:['email','form','any'].includes(m.contactGoal)?m.contactGoal:'email',researchedIds:[],attempts:{},niche:C.clean(m.niche).slice(0,90),queries:urls.length?['Manual URLs']:qs,manual:!!urls.length,target:Math.min(5000,Math.max(1,Number(m.target)||50)),includeForms:!!m.includeForms,maxPages:Math.min(20,Math.max(1,Number(m.maxPages)||20)),budget:Math.min(180,Math.max(30,Number(m.budget)||75)),pageLimit:Math.min(10,Math.max(2,Number(m.pageLimit)||6)),status:'running',phase:'sync',syncIndex:0,queryIndex:0,pageNumber:1,searchURL:'',searchLoaded:false,visitedSearch:[],seen:[],pending:[],queryStats:{},skips:[],events:[],createdAt:now(),stats:M.stats()};
+ const anyMetric=METRIC_BOUNDS.flatMap(([,lo,hi])=>[lo,hi]).some(k=>n[k]!=null);n.requireDA=(!!m.requireDA||anyMetric)&&!urls.length;n.requestedDA=n.requireDA;
+ for(const k of ['daMin','daMax','drMin','drMax','spamMin','spamMax'])if(n[k]!=null&&(n[k]<0||n[k]>100))throw Error('DA, DR and Spam Score must be between 0 and 100.');for(const [,lo,hi,label] of METRIC_BOUNDS)if(n[lo]!=null&&n[hi]!=null&&n[lo]>n[hi])throw Error('The lowest '+label+' must not be higher than the highest '+label+'.');if((m.requireDA||anyMetric)&&urls.length)throw Error('Metric filters work on Google results. Remove the website list or clear the metric filters.');
  if(s.settings.mailHistory){const all=await accounts(),chosen=Array.isArray(m.mailAccountIds)?m.mailAccountIds.filter(x=>all.some(a=>a.id===x)):all.map(a=>a.id);n.mailAccountIds=chosen;n.mailAccountLabels=all.filter(a=>chosen.includes(a.id)).map(a=>a.email||a.label);n.checkMail=chosen.length>0;}
  n.manualURLs=urls;s.campaigns.unshift(n);s.activeId=n.id;log(n,'Checking every database before discovery.');await save(s);await chrome.alarms.create(ALARM,{periodInMinutes:0.5});wake(100);return n.id;}
  case 'PUB_PAUSE':if(c&&c.status==='running'){c.status='paused';log(c,'Paused by you.');await save(s);}return true;
@@ -344,22 +425,23 @@ async function command(m){const s=await read(),c=m.campaignId?s.campaigns.find(x
   // Research only what already passed the filters: no more Google pages, and room for every waiting website.
   c2.queryIndex=c2.queries.length;c2.searchURL='';c2.pageNumber=1;c2.target=M.tally(s,c2)+left;c2.status='running';c2.completedAt='';s.activeId=c2.id;log(c2,'Researching the '+left+' website'+(left>1?'s':'')+' still waiting from this campaign. No new Google pages are opened.');await save(s);wake(50);return {queued:left};}
  case 'PUB_BACKUP':return {...s,exportedAt:now()};
- case 'PUB_MAIL_ADD':{const endpoint=PublisherMail.endpoint(m.endpoint),secret=PublisherMail.secret(m.secret),list=await accounts();if(list.some(a=>a.endpoint===endpoint))throw Error('This account is already connected.');if(list.length>=10)throw Error('Connect up to 10 email accounts.');const info=await PublisherMail.ping({endpoint,secret});if(!info.gmail)throw Error('This script cannot read Gmail. Paste the latest Code.gs and appsscript.json, then redeploy.');const account={id:id(),label:C.clean(m.label).slice(0,80)||info.account||'Gmail account',email:info.account,endpoint,secret,status:'Connected',checkedAt:now()};list.push(account);await chrome.storage.local.set({[ACCOUNTS]:list});if(!s.settings.mailHistory){s.settings.mailHistory=true;await save(s);}return {label:account.label,email:account.email};}
+ case 'PUB_MAIL_ADD':{const endpoint=PublisherMail.endpoint(m.endpoint),secret=PublisherMail.secret(m.secret),list=await accounts();if(list.some(a=>a.endpoint===endpoint))throw Error('This account is already connected.');if(list.length>=10)throw Error('Connect up to 10 email accounts.');const info=await PublisherMail.ping({endpoint,secret});if(!info.gmail)throw Error('This script cannot read Gmail. Paste the latest Code.gs and appsscript.json, then redeploy.');const account={id:id(),label:C.clean(m.label).slice(0,80)||info.account||'Gmail account',email:info.account,endpoint,secret,status:'ready',lastOkAt:now(),failures:0,checkedAt:now()};list.push(account);await chrome.storage.local.set({[ACCOUNTS]:list});if(!s.settings.mailHistory){s.settings.mailHistory=true;await save(s);}return {label:account.label,email:account.email};}
  case 'PUB_SEND_SHEET':{const config=await outputConfig();if(!config?.endpoint)throw Error('Connect your Output Sheet first (Sources & history).');const ids=new Set(Array.isArray(m.ids)?m.ids:[]);const rows=s.leads.filter(r=>ids.has(r.id));if(!rows.length)throw Error('Select at least one result.');if(rows.length>2000)throw Error('Send up to 2,000 results at a time.');let sent=0;
-  try{for(let i=0;i<rows.length;i+=50){const part=rows.slice(i,i+50);await sendRows(config,part.map(PublisherOutput.record));for(const r of part)r.sheetSentAt=now();sent+=part.length;}s.output.status='Connected';s.output.error='';s.output.lastSyncedAt=now();}
-  catch(e){s.output.status='Error';s.output.error=e.message;await save(s);throw Error((sent?sent+' sent, then: ':'')+e.message);}
+  try{for(let i=0;i<rows.length;i+=50){const part=rows.slice(i,i+50);await sendRows(config,part.map(PublisherOutput.record));for(const r of part)r.sheetSentAt=now();sent+=part.length;}healthOk(s.output);s.output.lastSyncedAt=now();}
+  catch(e){healthFail(s.output,e.message);await save(s);throw Error((sent?sent+' sent, then: ':'')+e.message);}
   s.output.pendingIds=s.output.pendingIds.filter(pid=>!ids.has(pid));await save(s);return {sent};}
  case 'PUB_DELETE':{const ids=new Set(Array.isArray(m.ids)?m.ids:[]);if(!ids.size)throw Error('Select at least one result.');const running=s.campaigns.find(c=>c.status==='running'&&c.jobs?.some(j=>ids.has(j.record.id)));if(running)throw Error('Some selected websites are being researched right now. Pause the campaign first.');const before=s.leads.length;s.leads=s.leads.filter(r=>!ids.has(r.id));for(const c of s.campaigns){if(c.researchedIds)c.researchedIds=c.researchedIds.filter(x=>!ids.has(x));if(c.researchedIds)M.tally(s,c);}s.output.pendingIds=s.output.pendingIds.filter(x=>!ids.has(x));await save(s);return {deleted:before-s.leads.length};}
- case 'PUB_RECHECK_METRICS':{if(s.metricRun?.status==='running')throw Error('A metrics recheck is already running.');const ids=C.uniq((Array.isArray(m.ids)?m.ids:[]).filter(x=>s.leads.some(r=>r.id===x)));if(!ids.length)throw Error('Select at least one result.');s.metricRun={status:'running',queue:ids,total:ids.length,done:0,updated:0,missing:0,parallel:Math.min(10,Math.max(1,Number(m.parallel)||5)),tabs:[],startedAt:now()};await save(s);wakeMetrics(50);return {queued:ids.length};}
+ // A recheck you asked for always takes over the automatic backfill; two of your own do not overlap.
+ case 'PUB_RECHECK_METRICS':{const running=s.metricRun?.status==='running';if(running&&!s.metricRun.automatic)throw Error('A metrics recheck is already running.');const ids=C.uniq((Array.isArray(m.ids)?m.ids:[]).filter(x=>s.leads.some(r=>r.id===x)));if(!ids.length)throw Error('Select at least one result.');if(running)await closeTabs(s.metricRun.tabs);s.metricRun={status:'running',queue:ids,total:ids.length,done:0,updated:0,missing:0,parallel:Math.min(10,Math.max(1,Number(m.parallel)||5)),tabs:[],startedAt:now(),automatic:false};await save(s);wakeMetrics(50);return {queued:ids.length};}
  case 'PUB_METRICS_STOP':{if(s.metricRun){s.metricRun.status='stopped';await closeTabs(s.metricRun.tabs);s.metricRun.tabs=[];await save(s);}return true;}
  case 'PUB_SHEET_MODE':{s.settings.sheetMode=m.mode==='auto'?'auto':'manual';await save(s);return {mode:s.settings.sheetMode};}
  case 'PUB_MAIL_TOGGLE':s.settings.mailHistory=!!m.enabled;await save(s);return true;
  case 'PUB_MAIL_REMOVE':{const list=await accounts();await chrome.storage.local.set({[ACCOUNTS]:list.filter(a=>a.id!==m.id)});return true;}
- case 'PUB_MAIL_TEST':{const list=await accounts(),a=list.find(x=>x.id===m.id);if(!a)throw Error('Account not found.');try{const info=await reachable(a,a.email||a.label);a.status='Connected';a.email=info.account||a.email;a.error='';}catch(e){a.status='Error';a.error=e.message;}a.checkedAt=now();await chrome.storage.local.set({[ACCOUNTS]:list});if(a.status==='Error')throw Error(a.error);return {status:a.status,email:a.email};}
+ case 'PUB_MAIL_TEST':{const list=await accounts(),a=list.find(x=>x.id===m.id);if(!a)throw Error('Account not found.');try{const info=await reachable(a,a.email||a.label);healthOk(a,{email:info.account||a.email});}catch(e){healthFail(a,e.message);}a.checkedAt=now();await chrome.storage.local.set({[ACCOUNTS]:list});if(a.status==='error')throw Error(a.error);return {status:healthLabel(a),email:a.email};}
  case 'PUB_BULK':{const ids=new Set(Array.isArray(m.ids)?m.ids:[]);if(!ids.size)throw Error('Select at least one result.');let changed=0;for(const r of s.leads){if(!ids.has(r.id))continue;if(['New','Contacted','Follow-up','Responded','Negotiating','Agreed','Not a fit'].includes(m.dealStatus))r.dealStatus=m.dealStatus;if(typeof m.doNotContact==='boolean')r.doNotContact=m.doNotContact;M.recompute(r);queueOutput(s,r.id);changed++;}for(const c2 of s.campaigns)if(c2.researchedIds)M.tally(s,c2);await save(s);return {changed};}
  default:throw Error('Unknown publisher action.');}}
 chrome.runtime.onMessage.addListener((m,sender,respond)=>{if(!m?.type?.startsWith('PUB_'))return false;if(sender.id!==chrome.runtime.id||!sender.url?.startsWith(chrome.runtime.getURL('')))return false;const p=m.type==='PUB_GET'?command(m):serial(()=>command(m),m.type);p.then(value=>respond({ok:true,value}),e=>respond({ok:false,error:e.message}));return true;});
-chrome.alarms.onAlarm.addListener(a=>{if(a.name===ALARM){syncOutput().catch(console.error);serial(async()=>{await tick();const s=await read();if(s.metricRun?.status==='running')wakeMetrics(100);},'alarm');}});
+chrome.alarms.onAlarm.addListener(a=>{if(a.name===ALARM){syncOutput().catch(console.error);wakeSources(1500);serial(async()=>{await tick();const s=await read();if(s.metricRun?.status==='running')wakeMetrics(100);},'alarm');}});
 chrome.runtime.onInstalled.addListener(()=>serial(async()=>{await chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true});await chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});await chrome.alarms.create(ALARM,{periodInMinutes:0.5});const s=await read(),c=active(s);if(c?.status==='running'){c.status='paused';log(c,'Extension updated. Resume your saved campaign.');}await save(s);}));
 chrome.runtime.onStartup.addListener(()=>serial(async()=>{await chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true});await chrome.alarms.create(ALARM,{periodInMinutes:0.5});const s=await read(),c=active(s);if(c&&!['complete','stopped'].includes(c.status)){c.status='paused';c.searchTabId=null;c.groupId=null;c.tabPool=[];for(const j of c.jobs||[]){j.tabId=null;j.parked=false;}c.searchLoaded=false;log(c,'Browser restarted. Resume your campaign.');}if(s.metricRun?.status==='running'){s.metricRun.tabs=[];wakeMetrics(2000);}await save(s);}));
 })();

@@ -38,13 +38,28 @@
   function suffix(domain) {return PublisherDeps.parse(domain,{allowPrivateDomains:true}).publicSuffix||'';}
   function metricCheck(result,settings){
  const num=v=>v==null||v===''?null:Number(v),years=m=>Math.floor(m/12)+'y '+(m%12)+'m';
+ const plain=v=>String(v),pct=v=>v+'%';
+ /* One rule per metric, both bounds, same shape for all of them, so no filter is ever
+    half-built. See docs/PRODUCT-STRUCTURE.md section 6. */
+ const RANGES=[
+  ['da','DA','daMin','daMax',plain,'da_range'],
+  ['dr','DR','drMin','drMax',plain,'metric_range'],
+  ['spam','Spam Score','spamMin','spamMax',pct,'metric_range'],
+  ['age','Domain age','ageMinMonths','ageMaxMonths',years,'metric_range'],
+  ['traffic','Traffic','trafficMin','trafficMax',plain,'metric_range']
+ ];
+ const bound=k=>{const v=num(settings[k]);return Number.isFinite(v)?v:null;};
+ const named=RANGES.filter(([,,lo,hi])=>bound(lo)!=null||bound(hi)!=null);
  const checks=[];
- const wantDA=Number.isFinite(settings.daMin)&&settings.daMin>0||Number.isFinite(settings.daMax)&&settings.daMax<100||settings.drMin==null&&settings.spamMax==null&&settings.ageMinMonths==null&&settings.trafficMin==null;
- if(wantDA)checks.push(['da','DA',v=>v<(settings.daMin??0)||v>(settings.daMax??100),v=>`DA ${v} is outside ${settings.daMin??0}-${settings.daMax??100}`,'da_range']);
- if(settings.drMin!=null)checks.push(['dr','DR',v=>v<settings.drMin,v=>`DR ${v} is below ${settings.drMin}`,'metric_range']);
- if(settings.spamMax!=null)checks.push(['spam','Spam Score',v=>v>settings.spamMax,v=>`Spam Score ${v}% is above ${settings.spamMax}%`,'metric_range']);
- if(settings.ageMinMonths!=null)checks.push(['age','Domain age',v=>v<settings.ageMinMonths,v=>`Domain age ${years(v)} is below ${Math.round(settings.ageMinMonths/12)} years`,'metric_range']);
- if(settings.trafficMin!=null)checks.push(['traffic','Traffic',v=>v<settings.trafficMin,v=>`Traffic ${v} is below ${settings.trafficMin}`,'metric_range']);
+ for(const [key,label,lo,hi,fmt,code] of RANGES){
+  let min=bound(lo),max=bound(hi);
+  // DA stays the default metric when the campaign named no other one.
+  if(min==null&&max==null){if(key!=='da'||named.length)continue;min=0;max=100;}
+  const why=v=>min!=null&&max!=null?label+' '+fmt(v)+' is outside '+fmt(min)+'-'+fmt(max)
+   :min!=null?label+' '+fmt(v)+' is below '+fmt(min)
+   :label+' '+fmt(v)+' is above '+fmt(max);
+  checks.push([key,label,v=>min!=null&&v<min||max!=null&&v>max,why,code]);
+ }
  for(const [key,label,fails,why,code] of checks){const v=num(result[key]);
   // Missing values follow the campaign choice: keep (default) or skip. A reliable value outside the range always rejects.
   if(v==null||!Number.isFinite(v)||key==='da'&&(!Number.isInteger(v)||v<0||v>100)){if(settings.missingMetric==='skip')return {decision:'reject',code:'metric_missing',reason:label+' not available (campaign skips websites with missing metrics)'};continue;}

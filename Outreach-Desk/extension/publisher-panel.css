@@ -12,6 +12,8 @@ body.sp { background: var(--bg); min-width: 300px; }
 .sp-big { display: flex; align-items: baseline; gap: 6px; }
 .sp-big b { font-size: 28px; font-weight: 650; line-height: 1; color: var(--accent); }
 .sp-big span { color: var(--muted); }
+.sp-phase { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent-2); }
+.sp-phase i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-3); animation: pulse 1.4s infinite; }
 .sp .meter { background: var(--grey-soft); }
 .sp .meter i { background: var(--accent); }
 .sp-stats { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }

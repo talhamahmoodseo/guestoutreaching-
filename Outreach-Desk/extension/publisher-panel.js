@@ -3,6 +3,10 @@
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const STATUS = {running: 'Running', paused: 'Paused', stopped: 'Stopped', complete: 'Complete', verification: 'Needs verification', database_blocked: 'Source unavailable', da_blocked: 'Metrics missing', mail_blocked: 'Email check failed'};
+// Same phase names and the same connection health vocabulary as the dashboard.
+const PHASE = {sync: 'Checking your sources', search: 'Searching Google', research: 'Researching websites'};
+const HEALTH = {new: ['Not checked', 'warn'], checking: ['Checking', ''], ready: ['Connected', 'ok'], degraded: ['Reconnecting', 'warn'], error: ['Error', 'error']};
+const healthPill = t => { const [label, kind] = HEALTH[t && t.status] || HEALTH.new; return pill(label, kind); };
 let state, last = '', toastTimer;
 async function send(type, data = {}) { const r = await chrome.runtime.sendMessage({type, ...data}); if (!r?.ok) throw Error(r?.error || 'The extension did not respond.'); return r.value; }
 function toast(text, error) { const t = $('#toast'); t.textContent = text; t.classList.toggle('error', !!error); t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 4000); }
@@ -27,8 +31,9 @@ function campaignCard() {
   return `<div class="sp-card">
     <div class="sp-head"><div style="min-width:0"><h2 title="${esc(c.name)}">${esc(c.name || c.niche)}</h2><p>${esc(c.niche)}${c.checkMail ? ', sent mail checked' : ''}</p></div>${pill(STATUS[c.status] || c.status, c.status === 'running' ? 'ok' : c.status === 'complete' ? '' : 'warn')}</div>
     <div class="sp-big"><b>${ready}</b><span>of ${c.target} ready</span></div>
+    ${live ? `<p class="sp-phase">${c.status === 'running' ? '<i></i>' : ''}${esc(c.status === 'running' ? (PHASE[c.phase] || 'Working') : STATUS[c.status] || c.status)}</p>` : ''}
     <div class="meter"><i style="width:${Math.min(100, ready / Math.max(1, c.target) * 100)}%"></i></div>
-    <div class="sp-stats"><div><b>${c.stats.researched || 0}</b><span>Researched</span></div><div><b>${(c.stats.contacted || 0) + (c.stats.database || 0)}</b><span>Skipped: history</span></div><div><b>${queued}</b><span>In queue</span></div></div>
+    <div class="sp-stats"><div><b>${c.stats.researched || 0}</b><span>Researched</span></div><div><b>${(c.stats.contacted || 0) + (c.stats.database || 0)}</b><span>Skipped: known</span></div><div><b>${queued}</b><span>In queue</span></div></div>
     ${jobs.length ? `<div class="sp-label">Researching now</div><div class="sp-sites">${jobs.map(j => `<div class="sp-site ${j.parked ? 'parked' : ''}"><i></i><span title="${esc(j.url)}">${esc(j.domain)}${j.parked ? ' needs verification' : ''}</span>${j.parked ? `<button class="link" data-tab="research" data-domain="${esc(j.domain)}" type="button">Open</button>` : ''}<button class="link" data-skip="${esc(j.domain)}" type="button">Skip</button></div>`).join('')}</div>` : ''}
     ${c.message ? `<p class="sp-msg ${warn ? 'warn' : ''}">${esc(c.message)}</p>` : ''}
     <div class="sp-actions">${actions}</div></div>`;
@@ -44,12 +49,14 @@ function recentCard() {
   return `<div class="sp-card"><div class="sp-head"><h2>Latest ready</h2><button class="link" data-results type="button">See all</button></div><div class="sp-list">${rows.map(r => `<div class="sp-row"><div><strong>${esc(r.domain)}</strong><span>${esc(r.bestEmail)}${Number.isFinite(r.da) ? ', DA ' + r.da : ''}${Number.isFinite(r.dr) ? ', DR ' + r.dr : ''}</span></div><button class="btn small" data-copy="${esc(r.bestEmail)}" type="button">Copy</button></div>`).join('')}</div></div>`;
 }
 function sourcesCard() {
-  const o = state.output || {}, accounts = state.mailAccounts || [], dbs = state.databases || [];
-  const sheet = !o.endpoint ? pill('Not connected') : o.status === 'Error' ? pill('Error', 'error') : pill('Connected', 'ok');
-  return `<div class="sp-head"><h2>History checks</h2><button class="link" data-sources type="button">Manage</button></div>
-    <div class="sp-src"><span>Output Sheet</span>${sheet}</div>
-    <div class="sp-src"><span>Email accounts</span>${state.settings.mailHistory && accounts.length ? pill(accounts.length + ' checked', 'ok') : pill('Off')}</div>
-    <div class="sp-src"><span>Sources</span>${pill(dbs.length + ' connected', dbs.some(d => d.status === 'error') ? 'error' : dbs.length ? 'ok' : '')}</div>`;
+  const o = state.output || {}, accounts = state.mailAccounts || [];
+  // The Output Sheet is a destination, so it is never counted among the research sources.
+  const sources = (state.databases || []).filter(d => d.kind !== 'output');
+  const mailOn = state.settings.mailHistory && accounts.length;
+  return `<div class="sp-head"><h2>Connections</h2><button class="link" data-sources type="button">Manage</button></div>
+    <div class="sp-src"><span>Research sources</span>${sources.length ? pill(sources.length + ' connected', sources.some(d => d.status === 'error') ? 'error' : 'ok') : pill('None')}</div>
+    <div class="sp-src"><span>Email history</span>${mailOn ? pill(accounts.length + ' mailbox' + (accounts.length > 1 ? 'es' : ''), accounts.some(a => a.status === 'error') ? 'error' : 'ok') : pill('Off')}</div>
+    <div class="sp-src"><span>Output Sheet</span>${o.endpoint ? healthPill(o) : pill('Not connected')}</div>`;
 }
 async function refresh(force) {
   try {
@@ -68,7 +75,7 @@ document.addEventListener('click', e => {
   if (b.id === 'open') dashboard();
   if (d.new !== undefined) dashboard('#new');
   if (d.results !== undefined) dashboard('#results');
-  if (d.sources !== undefined) dashboard('#sources');
+  if (d.sources !== undefined) dashboard('#connections');
   if (d.cmd) act(() => send(d.cmd), b);
   if (d.skip) act(() => send('PUB_SKIP', {domain: d.skip}), b);
   if (d.researchQueue) act(() => send('PUB_RESEARCH_QUEUE', {campaignId: d.researchQueue}), b);
