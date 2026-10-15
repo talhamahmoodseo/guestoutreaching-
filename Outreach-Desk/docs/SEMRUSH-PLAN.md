@@ -1,6 +1,8 @@
 # Semrush research — implementation plan
 
 **Status:** proposal for review. Nothing is built yet.
+**Updated** with findings from three real exports supplied by the owner — see Section 11,
+which supersedes the guesswork in Sections 2 and 5 for Method 2.
 **Date:** October 2026, against Outreach Desk 0.12.1.
 
 Two new discovery methods based on Semrush, each with its own dashboard, both feeding the
@@ -83,13 +85,14 @@ changes the import schema.
 
 ### Method 2 — Organic Research → Competitors
 
-One row per competing domain. Columns: **Domain**, **Competition Level**, **Common Keywords**,
-**SE Keywords (organic keywords)**, **Traffic**, **Costs**. Sorted by Competition Level by
-default; can sort by Common Keywords. Exportable as a list.
+One row per competing domain. The documented UI columns are Domain, Competition Level, Common
+Keywords, SE Keywords, Traffic and Costs — but **the real export carries 13 fields, not 6**. See
+Section 11 for the actual schema, which is what we will build against.
 
 Competition Level is computed from each domain's keyword count and the overlap between them —
 it is a similarity score, not a quality score. A high score means "ranks for the same things",
 which is exactly the signal you want, but says nothing about whether they accept guest posts.
+In the real export it turned out to be **almost useless as a filter** (Section 11.3).
 
 ---
 
@@ -193,12 +196,13 @@ Same shape, simpler filtering, one addition.
 ```
 1  You enter a seed blog (or paste the Competitors export)
 2  Candidates = competing domains + Com. Level, Common Keywords, SE Keywords, Traffic
-3  Filtering:
-     - exclude platforms, marketplaces, aggregators, news giants (reuse R.platform + list)
-     - TRAFFIC BAND, not a floor: e.g. 2,000-80,000/month, to find the small-but-ranking blogs
-       you actually want, and exclude both dead sites and media companies
-     - minimum Common Keywords / Competition Level
-     - optional: minimum organic keyword count
+3  Filtering (thresholds below are measured against your real export, Section 11):
+     - MINIMUM COMMON KEYWORDS - the strongest signal by far. Everything with 1-2 shared
+       keywords is pure noise (Ralph Lauren, cancer.gov, TripAdvisor).
+     - TRAFFIC BAND, not a floor, to exclude dead sites and media companies alike
+     - CONTENT SHAPE (traffic per keyword) - separates blogs from local businesses
+     - exclude platforms, marketplaces, aggregators (reuse R.platform + list)
+     - NOT Competition Level: it does not discriminate in practice
 4  Candidate preview
 5  Dedupe → research queue → existing pipeline
 ```
@@ -273,16 +277,122 @@ URL and anchor) so the Sheet and CSV can tell you where a prospect came from.
 The single most useful thing: **one real export of each report**, even with the domains
 scrambled. It pins the exact column headers, which is the only part I genuinely cannot guess.
 
-1. **Referring Domains export** (CSV) from a competitor, with your usual filters applied.
-2. **Backlinks export** (CSV) — only if you actually work from the Backlinks tab rather than
+1. **Referring Domains export** from a competitor, with your usual filters applied — **this is
+   the one thing still missing.** Backlink **Analytics**, not Backlink Audit.
+2. **Backlinks export** — only if you actually work from the Backlinks tab rather than
    Referring Domains. Please tell me which.
-3. **Organic Competitors export** (CSV) from a seed blog.
+3. ~~Organic Competitors export~~ — **received and analysed, see Section 11.**
 4. **Screenshot of your filter panel** in Backlink Analytics with your usual settings applied —
    I want to copy your real rules, not invent plausible ones.
 5. **Does Export work on your account?** Click it once and tell me. If the group-buy account
    blocks export, Phase 1 is dead and we have to talk about Phase 2 or a real subscription.
 6. A list of any sites you **always** reject on sight, and any you always keep. Those become the
    starting blocklist and allowlist.
+
+---
+
+## 11. Confirmed from your real exports
+
+Three files were supplied. Two were not usable; the third was, and it changes the plan for the
+better.
+
+### 11.1 What each file actually was
+
+| File | Verdict |
+| --- | --- |
+| `semrush-api-export-530.csv` | **Not backlinks.** 530 rows of *Backlink Audit project* metadata (projectId, folderId, toxicCount, recrawl settings) for 48 unrelated domains under one shared `userId`. `backlinksCount` was `0` on every row — no link data was ever collected. Wrong tool: Backlink **Audit** audits your own site; Backlink **Analytics** is the one that profiles any domain. |
+| `semrush-api-export-20.csv` | **No data.** 20 repeats of `{"code":-32107,"message":"Report limits exceeded"}` — the shared account had exhausted its report allowance. |
+| `semrush-api-export-4.csv` | **Real Organic Competitors data.** 100 competitor rows. Usable. |
+
+**So we still need a Referring Domains export for Method 1.** Everything below applies to
+Method 2 only.
+
+### 11.2 The real export format (important — it is not a normal CSV table)
+
+The file is a **JSON-RPC envelope**, not a spreadsheet. Three CSV columns — `jsonrpc`, `id`,
+`result` — and the entire payload is a JSON array crammed into one `result` cell. A second row
+carries the total count.
+
+```
+"jsonrpc","id","result"
+"2.0","10","[{...100 competitor objects...}]"
+"2.0","11","7997"                      <- total competitors available
+"2.0","10","{""code"":-32107,...}"      <- and more limit errors in the same file
+```
+
+Each competitor object has **13 fields**:
+
+```json
+{ "domain": "charlestonmoms.com", "commonKeywords": 40, "competitionLvl": 0.01,
+  "organicPositions": 8043, "organicTraffic": 8793, "organicTrafficCost": 5827,
+  "positions": 8540, "adwordsPositions": 0, "traffic": 10259, "trafficCost": 6528,
+  "serpFeaturesPositions": 497, "serpFeaturesTraffic": 1466, "serpFeaturesTrafficCost": 701 }
+```
+
+Two consequences:
+
+- **The importer must detect and unwrap this envelope**, not just read columns. Easy to do, but
+  it has to be deliberate. It should also accept a plain Semrush UI CSV, so either kind of
+  export works.
+- **This format is richer than the UI table** (13 fields vs 6), which gives us better filters
+  than we would have had from the screen.
+
+### 11.3 Filter thresholds, measured against your data
+
+Starting set: 100 competitors of a Charleston city/lifestyle seed.
+
+**Common Keywords is the signal. Competition Level is not.**
+`competitionLvl` ranged only 0 to 0.06 across all 100 rows — too compressed to separate anything,
+and note it is a **0-1 fraction**, so a UI "6%" is `0.06`. Meanwhile `commonKeywords` ranged 1 to
+516 with a median of 15. **22 rows had exactly 1 shared keyword**, and they are exactly the
+garbage: `ralphlauren.com`, `cancer.gov`, `ratemyprofessors.com`, `rallyhouse.com`,
+`tripadvisor.ca`, `rfc-editor.org`, `fisdogpark.wordpress.com`.
+
+**A traffic band removes the giants.** Nine domains exceeded 200k organic traffic — national
+media and retailers that will never take a guest post.
+
+**New discovery: filter on content shape.** A blog ranks for many keywords relative to its
+traffic. A restaurant or venue gets most of its traffic from its own brand name on few keywords.
+Dividing `organicTraffic / organicPositions` separates them cleanly:
+
+| Shape | Example | Keywords | Traffic | Traffic per keyword |
+| --- | --- | --- | --- | --- |
+| Content site | charlestonmoms.com | 8,043 | 8,793 | **1.1** |
+| Content site | mountpleasantmagazine.com | 5,811 | 3,749 | **0.7** |
+| Local business | poogansporch.com | 948 | 37,440 | **39.5** |
+| Local business | highcottoncharleston.com | 439 | 20,490 | **46.7** |
+
+A ceiling of about **5 traffic per keyword** drops restaurants, breweries, music halls and
+wedding venues while keeping every blog and magazine.
+
+**The cascade, on your real data:**
+
+```
+100 competitors returned
+ ->  47  after commonKeywords >= 10 and organicTraffic between 1k and 60k
+ ->  33  after traffic-per-keyword <= 5
+```
+
+The 33 survivors are the right kind of site — charlestonguru, charlestoncitypaper, charlestonmag,
+charlestondaily, charlestonmoms, mountpleasantmagazine, travelerofcharleston, fashiongtonpost.
+The 14 dropped at the last step were all restaurants and venues.
+
+**Two thirds of the manual cleanup disappears with three numeric rules.** The remaining third is
+what your existing engine already does: open the site and look for a contribution route.
+
+These numbers become the **defaults**, every one adjustable per campaign, with a live count of
+what each rule removes.
+
+### 11.4 What this proves about access
+
+- **Export partially works.** The same file contains both a successful 100-row result and
+  "Report limits exceeded" errors. The shared account is rate-limited, not dead.
+- **100 of 7,997 returned.** Getting the rest means repeated paginated calls against an account
+  that is already hitting limits — so expect to work from the first page, or from several
+  different seeds, rather than exhausting one report.
+- **This is captured network traffic, not the Export button.** Worth one test: open the
+  Competitors report and press Export. If a normal CSV downloads, the importer gets simpler and
+  more stable. If it is blocked, the envelope format above is what we build for.
 
 ---
 
