@@ -1,8 +1,8 @@
 # Semrush research — implementation plan
 
 **Status:** proposal for review. Nothing is built yet.
-**Updated** with findings from three real exports supplied by the owner — see Section 11,
-which supersedes the guesswork in Sections 2 and 5 for Method 2.
+**Updated** with findings from real exports of **both** methods — Sections 11 and 12, which
+supersede the guesswork in Sections 2, 4 and 5.
 **Date:** October 2026, against Outreach Desk 0.12.1.
 
 Two new discovery methods based on Semrush, each with its own dashboard, both feeding the
@@ -145,6 +145,12 @@ pluggable. Phases 1, 3 and 4 are untouched. **No existing behaviour changes.**
 
 ### Step 3 — the filters that replace your manual cleanup
 
+> **Superseded by Section 12.** The design below was written before seeing a real Referring
+> Domains export. Measured against your actual 949-row export, these pattern rules remove only
+> **10 domains**, because your Semrush-side filters already remove that whole class of junk
+> before export. Section 12 has what actually works. The rules below are kept because they still
+> matter as a safety net and for anyone exporting without your filter preset.
+
 This is the real work. Everything is a deterministic rule with a stated reason, so every
 rejection is explainable — same principle as the existing screening.
 
@@ -277,11 +283,13 @@ URL and anchor) so the Sheet and CSV can tell you where a prospect came from.
 The single most useful thing: **one real export of each report**, even with the domains
 scrambled. It pins the exact column headers, which is the only part I genuinely cannot guess.
 
-1. **Referring Domains export** from a competitor, with your usual filters applied — **this is
-   the one thing still missing.** Backlink **Analytics**, not Backlink Audit.
-2. **Backlinks export** — only if you actually work from the Backlinks tab rather than
-   Referring Domains. Please tell me which.
-3. ~~Organic Competitors export~~ — **received and analysed, see Section 11.**
+1. ~~Referring Domains export~~ — **received and analysed, see Section 12.**
+2. ~~Organic Competitors export~~ — **received and analysed, see Section 11.**
+3. **Your category calls.** Section 12.3 splits Semrush's 73 categories into publishers vs local
+   business. Tell me any you would move, especially `online_services` (116 domains, the largest
+   single group and genuinely ambiguous).
+4. **Does the Export button work**, or are these files captured from network traffic? It changes
+   how robust the importer can be, not whether it works.
 4. **Screenshot of your filter panel** in Backlink Analytics with your usual settings applied —
    I want to copy your real rules, not invent plausible ones.
 5. **Does Export work on your account?** Click it once and tell me. If the group-buy account
@@ -393,6 +401,92 @@ what each rule removes.
 - **This is captured network traffic, not the Export button.** Worth one test: open the
   Competitors report and press Export. If a normal CSV downloads, the importer gets simpler and
   more stable. If it is blocked, the envelope format above is what we build for.
+
+---
+
+## 12. Method 1 measured against your real export
+
+949 referring domains, exported as a **plain CSV table** this time (not the JSON-RPC envelope
+Method 2 produced), with 11 columns:
+
+```
+domain, backlinks_num, first_seen, last_seen, ip, country,
+domain_ascore, category, lost, new, is_follow
+```
+
+### 12.1 Your Semrush filters are already doing most of the work
+
+The export tells me exactly what you set before exporting, because every row agrees:
+
+| Field | Every row | Meaning |
+| --- | --- | --- |
+| `is_follow` | `true` | you filtered to dofollow only |
+| `lost` | `false` | active links only |
+| `domain_ascore` | 20 to 50 | you applied an Authority Score **range**, not a floor |
+| `backlinks_num` | median 1, max 8 | no sitewide/blogroll links survive that range |
+
+**Treat this as your preset** and have the tool state it on screen, so an export made with
+different settings is obvious rather than silently producing different results.
+
+### 12.2 I was wrong about what needs filtering
+
+My original design (Section 4) targeted profile links, comment links, directories, forums, PBNs
+and platforms. Run against your real export, the entire set of those rules removes **10 domains
+out of 949**:
+
+```
+platform hosts ......  0
+directories/citations  0
+forums ..............  1
+gov / edu ...........  9
+free subdomains .....  0
+```
+
+The reason is simple: **Authority Score 20–50 already excludes them.** Platforms and big
+directories sit at 80–100; spam and dead PBNs sit below 20. Your range filter cuts both ends off
+before the file is ever written.
+
+So the automated cleanup I proposed solves a problem you had already solved. Worth saying
+plainly rather than shipping rules that look busy and do nothing.
+
+### 12.3 What is actually left to filter
+
+Looking at what survives, the real noise is **businesses that will never publish a guest post** —
+restaurants, hotels, estate agents, builders, retailers. Semrush hands us a usable lever here: a
+`category` field, with 73 distinct values in your file.
+
+```
+Likely publishers (media, publishing, travel, lifestyle, IT, marketing …)   420  (44%)
+Likely local business (hospitality, real estate, retail, restaurants …)     257  (27%)
+Unclassified / ambiguous                                                    272  (29%)
+```
+
+The three biggest single categories are `online_services` (116), blank (95) and `hospitality` (86).
+
+**Proposal:** a category allow/deny list, pre-filled with the split above and fully editable,
+shown as a live count ("excluding 257 of 949"). Blank categories are **kept**, consistent with
+the standing rule that uncertainty keeps the site.
+
+Applying pattern rules plus a business-category deny list:
+
+```
+949 referring domains
+ -> 939  after pattern rules (platforms, forums, gov/edu)
+ -> 685  after excluding local-business categories      (28% removed)
+```
+
+### 12.4 The honest conclusion for Method 1
+
+Semrush cannot tell us whether a site accepts contributions. `category` narrows it; only opening
+the site proves it — and that is exactly what your engine already does well.
+
+So **Method 1's value is not clever filtering. It is volume plus deduplication**: turning one
+competitor into ~685 pre-qualified candidates, automatically stripped of everything you have
+already contacted, fed to the existing pipeline overnight.
+
+For scale: 685 sites at the default 75s budget, 5 at a time, is roughly **3 hours** of unattended
+running — and far less after your database removes the ones you already know. That is the right
+order of magnitude for an overnight job, and it is the single biggest argument for building this.
 
 ---
 
