@@ -1,4 +1,4 @@
-# Outreach Desk 0.12.1: guest-post research
+# Outreach Desk 0.13: guest-post research
 
 A standalone Chrome extension for finding publisher contacts, organising opportunities by
 campaign, and checking what you already have. It does research only. It never sends email
@@ -7,7 +7,7 @@ and never submits a form — sending and negotiation stay with you.
 ## Install or upgrade
 
 1. Back up first: **Settings → Download backup**. Stop any running campaign.
-2. Unzip `Outreach-Desk-v0.12.1.zip` into a permanent folder.
+2. Unzip `Outreach-Desk-v0.13.zip` into a permanent folder.
 3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select
    **Outreach-Desk/extension** (the folder containing `manifest.json`).
 4. Open the extension icon → **Open research workspace**.
@@ -30,8 +30,30 @@ where anything new belongs.
 | --- | --- |
 | **Results** | Every website the research produced. Status tabs (Ready, Form only, No email, Rejected) are views of one list, so your filters survive switching between them. |
 | **Campaigns** | Create a campaign, watch its progress, read its keyword performance and skip reasons. |
+| **Semrush** | A second way to find websites: turn a competitor or seed blog into candidates. See below. |
 | **Connections** | Everything outside the extension — see below. |
 | **Settings** | Defaults that apply to every campaign, plus Gemini, sender profiles and backups. |
+
+## Semrush research
+
+A second discovery method, with its own screen, feeding the same pipeline.
+
+**Method 1 — competitor backlinks.** Export a competitor's **Referring Domains** from Backlink
+Analytics, drop the file in, and the tool removes platforms, directories, forums, free hosts,
+gov/edu and the Semrush categories that never publish contributions.
+
+**Method 2 — organic competitors.** Export the **Competitors** report for a seed blog. Filtering
+is by shared keywords (the strongest signal), a traffic band that removes national media, and
+**visits per keyword** — a measure that separates content sites from local businesses, because a
+restaurant earns most of its traffic from its own name on very few keywords.
+
+Both read Semrush's plain CSV export *and* the raw API response format. Nothing is saved while
+you tune the filters: you see a live count and a preview of exactly what is being removed and
+why, and only when you approve does it become a campaign. From there it is the ordinary
+pipeline — your history checks, opening each site, qualifying it, finding emails, the Sheet.
+
+The default thresholds are not guesses: they were measured against real exports. See
+`docs/SEMRUSH-PLAN.md`.
 
 ## Connections: three systems that never mix
 
@@ -115,7 +137,7 @@ excluded from backups.
 
 ## Validation and limits
 
-160 automated tests pass, including a headless render of the real dashboard, regression tests
+174 automated tests pass, including a headless render of the real dashboard, regression tests
 proving a transient Apps Script 404 no longer breaks a running campaign, and tests proving an
 unreachable address is retried on `www.`/`http` before a website is rejected. See
 `docs/VALIDATION.md`.

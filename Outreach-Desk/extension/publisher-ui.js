@@ -329,6 +329,7 @@ function render() {
   renderConnectionsDot();
   if (view === 'results') { renderProgress(); renderReport(); renderTabs(); renderResults(); }
   if (view === 'campaigns') renderCampaigns();
+  if (view === 'semrush') renderSemrush();
   if (view === 'connections') renderConnections();
   if (view === 'settings') { renderSettings(); renderSenders(); }
 }
@@ -439,6 +440,10 @@ document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const d = b.dataset;
   if (d.view) changeView(d.view);
+  if (d.method) { sem.method = d.method; sem.settings = null; renderSemrush(); }
+  if (d.cand) { sem.view = d.cand; renderSemrush(); }
+  if (d.semCat) { const off = semSettings().categoriesOff || (semSettings().categoriesOff = []);
+    const at = off.indexOf(d.semCat); if (at < 0) off.push(d.semCat); else off.splice(at, 1); renderSemrush(); }
   if (d.report) { campaign = d.report; page = 0; changeView('opportunities'); }
   if (d.go) changeView(d.go);
   if (b.id === 'new-search' || b.hasAttribute('data-start')) openCampaign();
@@ -480,6 +485,11 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset && t.dataset.semSet) {
+    const field = SEM_FIELDS[sem.method].find(x => x.key === t.dataset.semSet);
+    semSettings()[t.dataset.semSet] = field && field.type === 'check' ? t.checked : (t.value.trim() === '' ? null : Number(t.value));
+    renderSemrush(); return;
+  }
   if (t.dataset.select) { if (t.checked) selected.add(t.dataset.select); else selected.delete(t.dataset.select); renderResults(); }
   if (t.id === 'select-page') { for (const r of filtered().slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)) if (t.checked) selected.add(r.id); else selected.delete(r.id); renderResults(); }
   if (t.dataset.contactOverride) updateDetail(() => send('PUB_EMAIL_OVERRIDE', {id: t.dataset.lead, email: t.dataset.contactOverride, value: t.value}), t);
@@ -544,6 +554,144 @@ $('#moz-stop').onclick = e => action(() => send('PUB_STOP'), e.currentTarget);
 document.addEventListener('submit', e => { if (e.target.id !== 'notes') return; e.preventDefault(); updateDetail(() => send('PUB_UPDATE_LEAD', {id: e.target.dataset.id, ...Object.fromEntries(new FormData(e.target)), doNotContact: e.target.elements.doNotContact.checked}), e.submitter); });
 $('#detail-dialog').addEventListener('close', () => { openId = ''; });
 $('#detail-dialog').addEventListener('click', e => { if (e.target === $('#detail-dialog')) $('#detail-dialog').close(); });
+
+
+/* ---------- Semrush discovery ----------
+   Parsing and filtering happen here in the dashboard, because nothing is saved until you
+   approve: no state is written and no tab is opened. Approving hands the domains to the normal
+   New campaign dialog, so Semrush reuses the entire existing pipeline rather than copying it. */
+const SEM_STEPS = {
+  backlinks: ['Open <b>Backlink Analytics</b> in Semrush &mdash; not Backlink Audit.',
+    'Enter the competitor domain and search.',
+    'Open the <b>Referring Domains</b> tab.',
+    'Apply your usual filters (dofollow, active, Authority Score range).',
+    'Export, then drop the file here.'],
+  competitors: ['Open <b>Organic Research</b> in Semrush.',
+    'Enter the seed blog and search.',
+    'Open the <b>Competitors</b> tab.',
+    'Export, then drop the file here.']
+};
+const SEM_FIELDS = {
+  backlinks: [
+    {key: 'ascoreMin', label: 'Authority Score from', type: 'number'},
+    {key: 'ascoreMax', label: 'Authority Score to', type: 'number'},
+    {key: 'excludeLost', label: 'Skip links that are no longer live', type: 'check'},
+    {key: 'followOnly', label: 'Dofollow links only', type: 'check'},
+    {key: 'categoriesOff', label: 'Skip these Semrush categories', type: 'chips'}
+  ],
+  competitors: [
+    {key: 'commonMin', label: 'Shared keywords, at least', type: 'number', note: 'The strongest signal. Below 10 is usually noise.'},
+    {key: 'trafficMin', label: 'Organic traffic from', type: 'number'},
+    {key: 'trafficMax', label: 'Organic traffic to', type: 'number', note: 'An upper bound removes national media that never accept contributions.'},
+    {key: 'shapeMax', label: 'Visits per keyword, at most', type: 'number', note: 'Separates blogs from brands: a restaurant earns most of its traffic from its own name.'}
+  ]
+};
+let sem = {method: 'backlinks', data: null, settings: null, view: 'kept', filename: ''};
+
+function semSettings() { return sem.settings || (sem.settings = structuredClone(PublisherSemrush.DEFAULTS[sem.method])); }
+function semFiltered() {
+  if (!sem.data) return null;
+  return PublisherSemrush.apply(sem.data.candidates, semSettings(), state?.settings?.blocklist || []);
+}
+function renderSemrush() {
+  $$('[data-method]').forEach(b => { const on = b.dataset.method === sem.method; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); });
+  $('#semrush-steps').innerHTML = SEM_STEPS[sem.method].map(x => '<li>' + x + '</li>').join('');
+  $('#semrush-hint').textContent = sem.method === 'backlinks'
+    ? 'Referring Domains export, or the raw API response. Both are read.'
+    : 'Organic Competitors export, including the raw API response format.';
+  const has = !!sem.data;
+  $('#semrush-intake').hidden = has;
+  $('#semrush-result').hidden = !has;
+  if (!has) return;
+
+  const {kept, dropped} = semFiltered();
+  const total = sem.data.candidates.length;
+  $('#semrush-title').textContent = sem.method === 'backlinks' ? 'Referring domains' : 'Organic competitors';
+  $('#semrush-source').textContent = sem.filename + ' · ' + total.toLocaleString() + ' unique website' + (total === 1 ? '' : 's') + (sem.data.seed ? ' from ' + sem.data.seed : '');
+  $('#semrush-kept-n').textContent = kept.length;
+  $('#semrush-drop-n').textContent = dropped.length;
+  $('#semrush-start').disabled = !kept.length;
+  $('#semrush-start').textContent = kept.length ? 'Research ' + kept.length + ' website' + (kept.length === 1 ? '' : 's') : 'Nothing to research';
+
+  const pct = n => Math.round(n / Math.max(1, total) * 100);
+  $('#semrush-flow').innerHTML =
+    '<div class="flow-step"><b>' + total.toLocaleString() + '</b><span>In the export</span><i style="width:100%"></i></div>' +
+    '<div class="flow-step cut"><b>' + dropped.length.toLocaleString() + '</b><span>Filtered out</span><i style="width:' + pct(dropped.length) + '%"></i></div>' +
+    '<div class="flow-step good"><b>' + kept.length.toLocaleString() + '</b><span>Ready to research</span><i style="width:' + pct(kept.length) + '%"></i></div>';
+
+  const warn = [];
+  if (sem.data.limited) warn.push('This export also contained <b>"Report limits exceeded"</b> errors, so Semrush may have returned fewer websites than actually exist.');
+  if (sem.data.duplicates) warn.push(sem.data.duplicates + ' duplicate domain' + (sem.data.duplicates === 1 ? ' was' : 's were') + ' collapsed into one.');
+  $('#semrush-warning').hidden = !warn.length;
+  $('#semrush-warning').innerHTML = warn.join(' ');
+
+  const s = semSettings();
+  $('#semrush-filters').innerHTML = SEM_FIELDS[sem.method].map(f => {
+    if (f.type === 'check') return '<label class="check"><input type="checkbox" data-sem-set="' + f.key + '" ' + (s[f.key] ? 'checked' : '') + '> ' + esc(f.label) + '</label>';
+    if (f.type === 'chips') {
+      const present = C.uniq(sem.data.candidates.map(c => c.category).filter(Boolean)).sort();
+      if (!present.length) return '';
+      return '<div class="chip-field"><span class="chip-label">' + esc(f.label) + '</span><div class="chips">' +
+        present.map(cat => '<button class="chip ' + ((s.categoriesOff || []).includes(cat) ? 'off' : '') + '" data-sem-cat="' + esc(cat) + '" type="button">' + esc(cat.replace(/_/g, ' ')) + '</button>').join('') +
+        '</div><span class="hint">Struck-through categories are removed. Websites with no category are always kept.</span></div>';
+    }
+    return '<label>' + esc(f.label) + '<input type="number" data-sem-set="' + f.key + '" value="' + (s[f.key] ?? '') + '" placeholder="any">' + (f.note ? '<span class="hint">' + esc(f.note) + '</span>' : '') + '</label>';
+  }).join('');
+
+  const rows = sem.view === 'kept' ? kept : dropped;
+  $$('[data-cand]').forEach(b => b.classList.toggle('active', b.dataset.cand === sem.view));
+  if (!rows.length) {
+    $('#semrush-table').innerHTML = '<div class="empty"><h2>Nothing here</h2><p>' +
+      (sem.view === 'kept' ? 'Every website was filtered out. Loosen a filter on the left.' : 'No website was filtered out.') + '</p></div>';
+    return;
+  }
+  const cols = sem.method === 'backlinks'
+    ? ['Website', 'Authority', 'Category', 'Country', 'Links']
+    : ['Website', 'Shared keywords', 'Organic traffic', 'Keywords', 'Visits / keyword'];
+  $('#semrush-table').innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+    cols.map((c, i) => '<th' + (i ? ' class="num"' : '') + '>' + c + '</th>').join('') +
+    (sem.view === 'dropped' ? '<th>Why it was removed</th>' : '') + '</tr></thead><tbody>' +
+    rows.slice(0, 400).map(c => '<tr><td><div class="site">' + ext('https://' + c.domain + '/', c.domain, 'domain') + '</div></td>' +
+      (sem.method === 'backlinks'
+        ? '<td class="num">' + (c.ascore ?? '-') + '</td><td>' + esc((c.category || '-').replace(/_/g, ' ')) + '</td><td class="num">' + esc((c.country || '-').toUpperCase()) + '</td><td class="num">' + (c.backlinks || '-') + '</td>'
+        : '<td class="num">' + c.commonKeywords + '</td><td class="num">' + (traffic(c.organicTraffic) || 0) + '</td><td class="num">' + (c.organicKeywords || 0).toLocaleString() + '</td><td class="num">' + (c.trafficPerKeyword ?? '-') + '</td>') +
+      (sem.view === 'dropped' ? '<td><span class="why">' + esc(c.reason) + '</span></td>' : '') + '</tr>').join('') +
+    '</tbody></table></div>' +
+    (rows.length > 400 ? '<div class="pager">Showing the first 400 of ' + rows.length.toLocaleString() + '.</div>' : '');
+}
+
+async function semImport(file) {
+  if (!file) return;
+  if (file.size > 30 * 1024 * 1024) throw Error('That file is larger than 30 MB.');
+  const text = await file.text();
+  const data = PublisherSemrush.read(text, {seed: C.domain($('#semrush-seed').value) || ''});
+  if (data.method !== sem.method) {
+    sem.method = data.method;
+    toast('That file is the ' + (data.method === 'backlinks' ? 'Referring Domains' : 'Organic Competitors') + ' report, so the matching method was selected for you.');
+  }
+  sem.data = data; sem.settings = null; sem.view = 'kept'; sem.filename = file.name;
+  renderSemrush();
+}
+
+$('#semrush-file').onchange = e => action(async () => { await semImport(e.target.files[0]); e.target.value = ''; });
+for (const type of ['dragenter', 'dragover']) $('#semrush-drop').addEventListener(type, e => { e.preventDefault(); $('#semrush-drop').classList.add('over'); });
+for (const type of ['dragleave', 'drop']) $('#semrush-drop').addEventListener(type, () => $('#semrush-drop').classList.remove('over'));
+$('#semrush-drop').addEventListener('drop', e => { e.preventDefault(); action(() => semImport(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0])); });
+$('#semrush-seed').addEventListener('input', () => { if (sem.data) { sem.data.seed = C.domain($('#semrush-seed').value) || ''; renderSemrush(); } });
+$('#semrush-reset').onclick = () => { sem.data = null; sem.settings = null; renderSemrush(); };
+$('#semrush-defaults').onclick = () => { sem.settings = null; renderSemrush(); };
+$('#semrush-start').onclick = () => {
+  const {kept} = semFiltered();
+  if (!kept.length) return;
+  const seed = sem.data.seed || '';
+  openCampaign();
+  const f = $('#search-form');
+  f.elements.urls.value = kept.map(c => 'https://' + c.domain + '/').join('\n');
+  f.elements.campaignName.value = (seed ? seed + ' · ' : '') + (sem.method === 'backlinks' ? 'Backlink prospects' : 'Organic competitors');
+  f.elements.target.value = String(kept.length);
+  for (const d of $$('#search-form details.help')) if (d.querySelector('[name=urls]')) d.open = true;
+  toast(kept.length + ' websites loaded. Set the niche, then start.');
+};
 
 chrome.storage.onChanged.addListener(changes => { if (Object.keys(changes).some(k => k.startsWith('publisher'))) refresh(); });
 refresh().then(() => { const h = location.hash; if (h === '#new') openCampaign(); else if (h === '#connections' || h === '#sources') changeView('connections'); if (h) history.replaceState(null, '', location.pathname); });

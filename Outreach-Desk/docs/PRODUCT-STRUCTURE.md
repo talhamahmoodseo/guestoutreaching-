@@ -27,13 +27,19 @@ A section that does not clearly serve one of these does not belong in the produc
 
 ---
 
-## 2. The four sections
+## 2. The five sections
 
-The sidebar has exactly four destinations, in this order. This is the whole product.
+The sidebar has exactly five destinations, in this order. This is the whole product.
 
 **Results comes first and is the default view**, because reviewing is what you do most: a
 campaign is started once and reviewed for days. Campaigns sits second because you visit it to
 start or inspect a run, not to work.
+
+Semrush earned the fifth slot in 0.13 rather than being folded into Campaigns, because it is a
+**different act**: you are sifting a file of thousands of domains down to a few hundred before
+any campaign exists. That work has its own screen, its own filters and its own preview. The
+moment it produces an approved list it hands over to the ordinary New campaign dialog and
+disappears — see Section 2a.
 
 ### Results — *review*
 Every website the research produced, for one campaign or all of them.
@@ -55,6 +61,20 @@ skip reasons, the activity log, Duplicate, Pause/Resume/Stop.
 
 Does **not** own: individual websites. A campaign is a *job*; its output lives in Results.
 
+### Semrush — *discover, a second way*
+Turn a competitor or seed blog into a list of candidate websites.
+
+Owns: the import of a Semrush export, the filter thresholds for both methods, the candidate
+preview and the approve step.
+
+Does **not** own: campaigns, results, or any part of researching a website. It produces a list
+of domains and hands them to the New campaign dialog. **Nothing is saved until you approve** —
+reading and filtering a file writes no state and opens no tab.
+
+Why it is not a second Results page: splitting results would create two databases that disagree
+about who you already contacted, which is the exact failure this product exists to prevent.
+Semrush leads land in Results like any other, tagged with where they came from.
+
 ### Connections — *deliver, and know who you already contacted*
 Everything that talks to something outside the extension. Three separate systems that
 happen to share a page. See section 3.
@@ -66,6 +86,23 @@ Owns things that are **true across all campaigns**. A value that belongs to one 
 belongs in the campaign dialog, not here.
 
 ---
+
+## 2a. Discovery is pluggable; everything after it is shared
+
+There are now two ways to discover a website and there will probably be more. The rule:
+
+> **Discovery differs. The pipeline never does.**
+
+```
+Google Search Operators ──┐
+                          ├──▶  history check ─▶ open site ─▶ qualify ─▶ emails ─▶ score ─▶ Sheet
+Semrush backlinks ────────┤
+Semrush competitors ──────┘
+```
+
+A new discovery method may add a screen and a filter set. It may **not** add a second results
+table, a second dedupe, a second scoring rule or a second export. If a method seems to need one,
+the method is wrong, not the pipeline.
 
 ## 3. Connections: three systems, never mixed
 

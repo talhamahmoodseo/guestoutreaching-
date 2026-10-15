@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Outreach Desk \u2014 Guest Post Research",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Standalone guest-post research with niche and title evidence, DA/DR/Spam/Age screening from your SEO extension, sent-mail history, typed contacts and Google Sheets output.",
   "minimum_chrome_version": "120",
   "permissions": [

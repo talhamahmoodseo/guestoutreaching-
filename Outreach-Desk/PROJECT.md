@@ -1,6 +1,6 @@
 # Outreach Desk — Complete Project Handoff
 
-**Version:** 0.12.1
+**Version:** 0.13.0
 **Type:** Chrome extension (Manifest V3), no server, no build step, no framework
 **Owner:** Talha Mahmood, freelance SEO / link builder (Faisalabad, Pakistan)
 **Repo:** `chromeoutreaching` (this folder is `Outreach-Desk/`)
@@ -18,7 +18,7 @@ the one progress calculation and the rule for where a new feature goes. The prod
 | | |
 | --- | --- |
 | Works | `npm ci && npm test` -> **160 tests pass**. The extension loads unpacked and runs. |
-| Last shipped | 0.12.1, a product-structure release. The research engine is deliberately unchanged since 0.11. |
+| Last shipped | 0.13.0, which added Semrush discovery. The research engine is deliberately unchanged since 0.11. |
 | Owner's last verdict | The engine is "mostly fine"; the product around it was "unplanned, cheap, confusing". 0.12 answered that. |
 | **Not verified** | **Nobody has opened 0.12.x in a real browser.** It was built in a sandbox that cannot launch Chrome. See Section 11. |
 | Next most useful thing | Get the owner (or a machine with a GUI) to run `tests/e2e-chromium.py`, then a real campaign. |
@@ -37,6 +37,10 @@ the one progress calculation and the rule for where a new feature goes. The prod
 - `tests/publisher-dashboard.test.cjs` renders the real dashboard headlessly.
 
 **The three jobs still open** are in Section 12. Nothing else is known-broken.
+
+**Semrush (0.13)** adds discovery only. It writes no state until the user approves a candidate
+list, then calls the ordinary New campaign dialog. If you are tempted to give it its own results
+table or its own dedupe, read `docs/PRODUCT-STRUCTURE.md` section 2a first — the answer is no.
 
 ---
 
@@ -125,6 +129,8 @@ The job it replaces: manually googling `fashion "write for us"`, opening each re
 | `tests/*.test.cjs` | — | 158 Node tests, `npm test`. |
 | `tests/publisher-dashboard.test.cjs` | — | Renders the real dashboard in a headless DOM. Catches broken screens that logic tests cannot. |
 | `docs/PRODUCT-STRUCTURE.md` | — | **The information architecture.** Read before touching any screen. |
+| `extension/publisher-semrush.js` | 180 | Semrush export parsing and filtering. Pure logic, no I/O. Thresholds are measured, not guessed. |
+| `docs/SEMRUSH-PLAN.md` | — | How both Semrush methods were researched, with the real-export measurements behind every default. |
 | `tests/e2e-chromium.py` | — | Real-browser end-to-end test. **Use this.** |
 
 Load order matters: the HTML loads deps → core → rules → da → topics → model → sheets → output → language → export → ui. The worker `importScripts` the same set plus `mail`.
@@ -422,5 +428,6 @@ He has not chosen yet.
 | 0.9 | Contact-form CAPTCHAs separated from page challenges; missing-metric option restored; sequential keyword processing; engine version banner. |
 | 0.10 | "No email" only after opening; strict per-campaign dedup; automatic Sheet export; metrics recheck with Google fallback. |
 | 0.11 | Queue watchdog, sheet sync off the queue, single source of truth for connections, queued sites no longer shown as results. |
+| 0.13 | Semrush discovery: two methods, own dashboard, measured filters, both export formats. Pipeline untouched. |
 | 0.12.1 | Unreachable addresses retried on www/http before rejecting; browser error text replaced with plain English. |
 | 0.12 | Product structure defined and implemented: four sections, Connections split into three systems, one connection health model and one retry policy (fixes the transient-404 campaign stops), self-managing Sheet sources, symmetric metric filters, automatic metric backfill, campaign progress, consolidated stylesheet, headless dashboard tests. |

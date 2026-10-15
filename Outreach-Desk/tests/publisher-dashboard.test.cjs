@@ -13,7 +13,7 @@ const ext = f => fs.readFileSync(path.join(root, 'extension', f), 'utf8');
 
 const SCRIPTS = ['vendor/publisher-deps.js', 'publisher-core.js', 'publisher-rules.js', 'publisher-da.js',
   'publisher-topics.js', 'publisher-model.js', 'publisher-sheets.js', 'publisher-output.js',
-  'publisher-language.js', 'publisher-export.js'];
+  'publisher-language.js', 'publisher-semrush.js', 'publisher-export.js'];
 
 function boot(search = '') {
   const html = ext('publisher.html');
@@ -81,11 +81,11 @@ test('the dashboard renders results for the fixture campaigns without throwing',
   assert.match(document.querySelector('#campaign-filter').innerHTML, /campaign/i);
 });
 
-test('the four sections are the whole product and each one renders', async () => {
+test('every sidebar section renders without throwing', async () => {
   const { document, settle } = boot();
   await settle();
   const views = [...document.querySelectorAll('.nav-item')].map(b => b.dataset.view);
-  assert.deepEqual(views, ['results', 'campaigns', 'connections', 'settings']);
+  assert.deepEqual(views, ['results', 'campaigns', 'semrush', 'connections', 'settings']);
   for (const view of views) {
     click(document, `.nav-item[data-view="${view}"]`);
     await settle();
@@ -141,4 +141,30 @@ test('Copy emails is gone and the results toolbar keeps only real workflow actio
   const actions = [...document.querySelectorAll('.topbar-actions button')].map(b => b.textContent.trim());
   assert.deepEqual(actions, ['Export CSV']);
   assert.ok(document.querySelector('#results .copy-mini'), 'each row can copy its own main email');
+});
+
+test('Semrush opens on its intake step, with both methods offered', async () => {
+  const { document, settle } = boot();
+  await settle();
+  click(document, '.nav-item[data-view="semrush"]');
+  await settle();
+  const page = document.querySelector('[data-page="semrush"]');
+  assert.ok(!page.hasAttribute('hidden'), 'the Semrush page is visible');
+  assert.ok(!document.querySelector('#semrush-intake').hasAttribute('hidden'), 'starts at the import step');
+  assert.ok(document.querySelector('#semrush-result').hasAttribute('hidden'), 'no results until a file is read');
+  const methods = [...page.querySelectorAll('.method')].map(m => m.dataset.method);
+  assert.deepEqual([...methods], ['backlinks', 'competitors']);
+  assert.match(document.querySelector('#semrush-steps').textContent, /Backlink Analytics/,
+    'the instructions name the right Semrush tool');
+});
+
+test('switching Semrush method swaps the instructions', async () => {
+  const { document, settle } = boot();
+  await settle();
+  click(document, '.nav-item[data-view="semrush"]');
+  await settle();
+  click(document, '.method[data-method="competitors"]');
+  await settle();
+  assert.match(document.querySelector('#semrush-steps').textContent, /Organic Research/);
+  assert.ok(document.querySelector('.method[data-method="competitors"]').classList.contains('active'));
 });

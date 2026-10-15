@@ -1,3 +1,67 @@
+# Outreach Desk 0.13.0
+
+After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.
+
+## Semrush research
+
+A second way to find websites, with its own screen, feeding the research pipeline you already
+have. Nothing about Google campaigns changed.
+
+**Method 1 — competitor backlinks.** Export a competitor's **Referring Domains** from Backlink
+Analytics and drop the file in. Removed automatically: platforms and social sites, business
+directories and citation sites, forums, free subdomain hosts, gov/edu, links that are no longer
+live, and the Semrush categories that never publish contributions (restaurants, hotels, estate
+agents, retail and so on — every category is a chip you can toggle).
+
+**Method 2 — organic competitors.** Export the **Competitors** report for a seed blog. Three
+filters, all measured against a real export rather than guessed:
+
+- **Shared keywords** — the strongest signal by far. Domains sharing one or two keywords are
+  noise (Ralph Lauren, cancer.gov, TripAdvisor all appeared that way in a real file).
+- **Traffic band** — an upper bound removes national media that will never take a contribution.
+- **Visits per keyword** — the useful discovery. A blog ranks for many keywords relative to its
+  traffic; a restaurant earns most of its traffic from its own name on very few keywords. On a
+  real export a ceiling of 5 dropped every restaurant, brewery and venue while keeping every
+  blog and magazine.
+
+Semrush's **Competition Level is deliberately not used**: across 100 real rows it ranged only
+0 to 0.06 and could not separate anything.
+
+### Both formats are read
+
+Semrush exports arrive two ways and both work: a plain CSV table, and the raw API response,
+which is a JSON-RPC envelope with all the data crammed into a single cell. If a file also
+contains "Report limits exceeded" errors, the import says so rather than silently returning
+fewer websites than exist.
+
+### Nothing is saved until you approve
+
+Reading a file and tuning filters writes no data and opens no tab. You get a live count, a
+funnel showing how many were removed, and a **Removed** tab listing every rejected website with
+the reason in plain English. When you approve, the domains go into the ordinary New campaign
+dialog, so you set the niche and target exactly as you always do — and from there it is the same
+pipeline: your history checks, opening each site, qualifying it, finding emails, the Sheet.
+
+### Where it sits
+
+A fifth sidebar section. It earned its own screen because sifting thousands of domains down to a
+few hundred is a different act from running a campaign. But **Results stays one place**: Semrush
+leads land there like any other, because two results tables would eventually disagree about who
+you have already contacted — the exact failure this tool exists to prevent.
+
+## Design
+
+The Semrush screen carries the blue accent rather than the teal one that means "ready", so the
+two research modes are distinguishable at a glance while sharing the same component set: the
+same panels, tables, chips and spacing scale as everything else.
+
+## Testing
+
+174 tests, up from 160. The 14 new ones cover both export formats, the quota-error path, every
+filter rule, the content-shape separator, and the Semrush screen rendering in a headless DOM.
+The filter defaults were verified against the real 949-row Referring Domains export: 948 unique
+domains in, 658 kept, 290 removed (280 by category, 9 gov/edu, 1 forum).
+
 # Outreach Desk 0.12.1
 
 After replacing the files, click **Reload** on Outreach Desk in `chrome://extensions`.

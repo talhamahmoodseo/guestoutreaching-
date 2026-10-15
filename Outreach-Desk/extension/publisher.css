@@ -426,3 +426,70 @@ dialog::backdrop { background: #0f172a66; }
 /* Campaign card progress, same meter and wording as the dashboard and side panel. */
 .camp-progress { display: grid; gap: 6px; }
 .camp-progress span { font-size: 12px; color: var(--muted); }
+
+/* ---------- Semrush research ----------
+   A second discovery mode, so it carries the blue accent rather than the teal one that means
+   "ready". Same tokens, same components, deliberately different colour of light. */
+.method-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+.method { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s4) var(--s4); text-align: left;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm);
+  transition: border-color .14s, box-shadow .14s, transform .14s; }
+.method:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.method.active { border-color: var(--blue); box-shadow: 0 0 0 3px #2f5b9a1f, var(--shadow-sm); }
+.method-no { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--grey-soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+.method.active .method-no { background: var(--blue); color: #fff; }
+.method span:last-child { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); font-weight: 400; }
+.method strong { font-size: 14px; color: var(--ink); font-weight: 650; }
+
+.intake { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: var(--s4); align-items: start; }
+.intake-main { display: grid; gap: var(--s4); }
+.seed-field input { font-size: 15px; min-height: 42px; }
+.dropzone { display: grid; justify-items: center; gap: 6px; padding: 54px var(--s5); cursor: pointer; text-align: center;
+  border: 2px dashed var(--line-2); border-radius: var(--r-lg); background: var(--surface);
+  transition: border-color .14s, background .14s; }
+.dropzone:hover { border-color: var(--blue); background: var(--blue-soft); }
+.dropzone.over { border-color: var(--blue); background: var(--blue-soft); box-shadow: 0 0 0 4px #2f5b9a1a inset; }
+.dropzone svg { width: 34px; height: 34px; fill: none; stroke: var(--blue); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dropzone strong { font-size: 15px; }
+.dropzone span { font-size: 12.5px; color: var(--muted); font-weight: 400; max-width: 46ch; }
+.intake-side { padding: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.intake-side h3 { margin-bottom: var(--s2); }
+
+.funnel-card { display: grid; gap: var(--s3); padding: var(--s4) var(--s5); margin-bottom: var(--s4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.funnel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s4); }
+.flow-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
+.flow-step { display: grid; gap: 3px; padding: 12px 14px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); }
+.flow-step b { font-size: 22px; font-weight: 680; line-height: 1.1; letter-spacing: -0.02em; }
+.flow-step span { font-size: 11.5px; color: var(--muted); }
+.flow-step i { display: block; height: 3px; margin-top: 4px; border-radius: 2px; background: var(--line-2); transition: width .3s; }
+.flow-step.cut b { color: var(--amber); } .flow-step.cut i { background: var(--amber); }
+.flow-step.good { border-color: var(--accent); background: var(--accent-soft); }
+.flow-step.good b { color: var(--accent-2); } .flow-step.good i { background: var(--accent); }
+
+.semrush-body { display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+.filter-rail { position: sticky; top: var(--s3); display: grid; gap: var(--s3); padding: var(--s4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.filter-rail #semrush-filters { display: grid; gap: var(--s3); }
+.rail-foot { padding-top: var(--s2); border-top: 1px solid var(--line); }
+.chip-field { display: grid; gap: 6px; }
+.chip-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.chip-field .chips { max-height: 220px; overflow-y: auto; padding: 2px; }
+.chip.off { background: var(--red-soft); border-color: #e7bdb9; color: var(--red); text-decoration: line-through; }
+
+.candidate-pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); overflow: hidden; }
+.candidate-head { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.seg { display: inline-flex; padding: 3px; border-radius: var(--r); background: var(--grey-soft); gap: 2px; }
+.seg-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.seg-btn b { font-weight: 700; }
+.seg-btn.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
+.candidate-head .btn.primary { margin-left: auto; }
+.candidate-pane .table-wrap { border-radius: 0; }
+.why { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 1100px) {
+  .method-switch, .intake, .semrush-body, .flow-steps { grid-template-columns: 1fr; }
+  .filter-rail { position: static; }
+}
